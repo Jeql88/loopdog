@@ -48,19 +48,88 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
   const commits = await recentCommits(env);
   const prompt = assemblePrompt(options.ralphPrompt, commits, issues);
 
-  // The prompt goes via stdin, not argv: it is large and multi-line, and a
-  // shell (needed to launch the `claude` shim on Windows) would mangle it as a
-  // command-line argument. `claude --print` reads the prompt from stdin.
+  // `claude --print` alone buffers its whole reply and emits it only on exit,
+  // so a long run looks silent until it finishes. `--output-format stream-json
+  // --verbose` emits incremental JSON events as the agent works; we render
+  // those to readable text live via the mirror below. The prompt goes via
+  // stdin (not argv) so a Windows shell can't mangle the large payload.
+  const render = makeStreamRenderer((text) => env.write(text));
   const result = await env.spawn(
     "claude",
-    ["--print", "--permission-mode", options.permissionMode],
-    // Mirror the agent's output live so a multi-minute headless run is visible
-    // as it works, rather than buffered and dumped only when it exits.
-    { stdin: prompt, onData: (chunk) => env.write(chunk) },
+    [
+      "--print",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permission-mode",
+      options.permissionMode,
+    ],
+    { stdin: prompt, onData: (chunk) => render(chunk) },
   );
 
   const stopSignal = result.stdout.includes(STOP_SIGNAL);
   return { ok: true, spawned: true, stopSignal, output: result.stdout };
+}
+
+/**
+ * Build a stateful renderer that turns a stream of `claude --output-format
+ * stream-json` chunks into readable text, calling `write` with each rendered
+ * fragment as it arrives. Chunks may split mid-line, so partial lines are
+ * buffered until their newline. Lines that aren't the event types we surface
+ * (assistant text, the final result) are skipped, and any non-JSON line is
+ * passed through verbatim so nothing is silently lost.
+ */
+export function makeStreamRenderer(
+  write: (text: string) => void,
+): (chunk: string) => void {
+  let buffer = "";
+  return (chunk: string) => {
+    buffer += chunk;
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl);
+      buffer = buffer.slice(nl + 1);
+      const rendered = renderStreamLine(line);
+      if (rendered) write(rendered);
+    }
+  };
+}
+
+/** Render one stream-json line to readable text, or "" to skip it. */
+function renderStreamLine(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return "";
+  let event: unknown;
+  try {
+    event = JSON.parse(trimmed);
+  } catch {
+    // Not JSON (e.g. a warning printed before streaming begins) — show it as-is.
+    return `${line}\n`;
+  }
+  if (typeof event !== "object" || event === null) return "";
+  const e = event as Record<string, unknown>;
+
+  // Assistant turns carry the agent's text in message.content blocks.
+  if (e.type === "assistant" && isRecord(e.message)) {
+    const content = e.message.content;
+    if (Array.isArray(content)) {
+      const text = content
+        .filter((b): b is Record<string, unknown> => isRecord(b) && b.type === "text")
+        .map((b) => String(b.text ?? ""))
+        .join("");
+      return text ? `${text}\n` : "";
+    }
+  }
+  // The terminal result event: print its summary text if present.
+  if (e.type === "result" && typeof e.result === "string") {
+    return `${e.result}\n`;
+  }
+  return "";
+}
+
+/** Narrow an unknown to a plain object for safe property access. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /**

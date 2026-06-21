@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runRun } from "../src/run.ts";
+import { runRun, makeStreamRenderer } from "../src/run.ts";
 import { makeFakeEnv } from "./helpers/fake-env.ts";
 
 const RALPH = "RALPH PROMPT BODY";
@@ -87,7 +87,15 @@ test("gathers ready issues (excluding done/) + git log + ralph prompt, spawns on
     (c) => c.cmd === "claude" && c.args.includes("--print"),
   );
   assert.equal(agentCalls.length, 1);
-  assert.deepEqual(agentCalls[0].args, ["--print", "--permission-mode", "auto"]);
+  // Streams incrementally (stream-json) so a long run isn't silent until exit.
+  assert.deepEqual(agentCalls[0].args, [
+    "--print",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--permission-mode",
+    "auto",
+  ]);
 
   // The prompt is delivered via STDIN, never as a CLI arg — so a large
   // multi-line prompt can't be mangled by Windows shell quoting (issue 14).
@@ -129,26 +137,78 @@ test("no stop signal when the agent did work", async () => {
   assert.equal(result.stopSignal, false);
 });
 
+test("stream renderer extracts assistant text and skips noise events", () => {
+  const out: string[] = [];
+  const render = makeStreamRenderer((t) => out.push(t));
+  render(JSON.stringify({ type: "system", subtype: "init" }) + "\n");
+  render(
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Implementing slice 01." }] },
+    }) + "\n",
+  );
+  render(JSON.stringify({ type: "rate_limit_event" }) + "\n");
+  render(JSON.stringify({ type: "result", subtype: "success", result: "Done." }) + "\n");
+
+  const text = out.join("");
+  assert.match(text, /Implementing slice 01\./);
+  assert.match(text, /Done\./);
+  // System/rate-limit events are noise — not surfaced to the user.
+  assert.doesNotMatch(text, /system|rate_limit/);
+});
+
+test("stream renderer buffers chunks that split a line mid-way", () => {
+  const out: string[] = [];
+  const render = makeStreamRenderer((t) => out.push(t));
+  const full =
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "half-and-half" }] },
+    }) + "\n";
+  // Deliver the line in two arbitrary chunks — the renderer must not emit until
+  // the newline arrives, then emit the whole reassembled line once.
+  render(full.slice(0, 20));
+  assert.equal(out.length, 0, "nothing emitted before the newline");
+  render(full.slice(20));
+  assert.match(out.join(""), /half-and-half/);
+});
+
+test("stream renderer passes a non-JSON line through verbatim", () => {
+  const out: string[] = [];
+  const render = makeStreamRenderer((t) => out.push(t));
+  // A warning printed before streaming begins isn't JSON — it must not be lost.
+  render("(node:1) DeprecationWarning: something\n");
+  assert.match(out.join(""), /DeprecationWarning/);
+});
+
 test("mirrors the agent's output live through env.write as it streams", async () => {
   // The agent's run can take minutes; its output must be surfaced as it
   // arrives, not buffered and dumped at the end. runRun passes an onData mirror
   // to spawn, which writes each chunk through the port's raw `write`.
   const streamed: string[] = [];
+  // The agent run emits stream-json lines (newline-terminated), which the
+  // renderer turns into readable text on the user-facing stream.
+  const agentLine =
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "implemented slice 04, committed." }] },
+    }) + "\n";
   const env = makeFakeEnv({
     cwd: "/repo",
     write: (chunk) => streamed.push(chunk),
     spawnResults: [
       { stdout: "claude 1.0" }, // version probe
       { stdout: "abc earlier" }, // git log
-      { stdout: "implemented slice 04, committed." }, // agent run
+      { stdout: agentLine }, // agent run (stream-json)
     ],
   });
 
   const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
 
   assert.equal(result.ok, true);
-  // The agent's actual transcript reached the user-facing stream live.
+  // The agent's actual transcript reached the user-facing stream live, rendered
+  // from stream-json to plain text.
   assert.ok(streamed.join("").includes("implemented slice 04, committed."));
-  // And the same text is still captured on the result for the stop-signal check.
+  // And the raw stream-json is still captured on the result for the stop check.
   assert.match(result.output, /implemented slice 04/);
 });

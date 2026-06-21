@@ -1,6 +1,6 @@
 {
   "name": "loopdog",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Drop an AI-engineering workflow into any repo and run its autonomous implementation loop.",
   "license": "MIT",
   "type": "module",
