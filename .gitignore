@@ -1,4 +1,8 @@
 .claude/settings.local.json
+# Dogfood (slice 10): .claude/skills is a local junction to the single source
+# of truth at templates/.claude/skills. The real bundle is committed under
+# templates/; the junction is platform-local and must not be committed.
+.claude/skills
 node_modules/
 dist/
 .env

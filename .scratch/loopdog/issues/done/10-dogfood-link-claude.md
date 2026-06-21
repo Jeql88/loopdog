@@ -1,6 +1,18 @@
 # 10 — Dogfood: source this repo's `.claude` from `templates/`
 
-> Status: ready-for-agent
+> Status: done
+
+## Comments
+
+Implemented ahead of slices 07-09 (2026-06-21) so the single source of truth
+existed before those slices edited the bundle — otherwise 07-09 would have had
+to edit `.claude/` and copy into `templates/`, reintroducing the very drift this
+slice removes. Mechanism: the skill bundle now lives at `templates/.claude/skills`
+(committed), and `.claude/skills` is a Windows directory junction to it
+(`mklink /J`), gitignored so it stays platform-local. End users are unaffected —
+`init` copies the real files from `templates/`. Verified: init delivers all 10
+skills to a fresh repo; editing `templates/.claude/skills` reflects in `.claude`
+with no second edit.
 
 ## Parent
 
