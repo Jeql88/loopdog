@@ -46,12 +46,14 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
   const commits = await recentCommits(env);
   const prompt = assemblePrompt(options.ralphPrompt, commits, issues);
 
-  const result = await env.spawn("claude", [
-    "--print",
-    "--permission-mode",
-    options.permissionMode,
-    prompt,
-  ]);
+  // The prompt goes via stdin, not argv: it is large and multi-line, and a
+  // shell (needed to launch the `claude` shim on Windows) would mangle it as a
+  // command-line argument. `claude --print` reads the prompt from stdin.
+  const result = await env.spawn(
+    "claude",
+    ["--print", "--permission-mode", options.permissionMode],
+    { stdin: prompt },
+  );
 
   const stopSignal = result.stdout.includes(STOP_SIGNAL);
   return { ok: true, spawned: true, stopSignal };

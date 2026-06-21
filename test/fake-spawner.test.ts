@@ -32,10 +32,16 @@ test("fake spawner records calls and returns canned output in order", async () =
 
   // Calls are recorded with their command and args, for prompt-assembly assertions.
   assert.equal(env.spawnCalls.length, 2);
-  assert.deepEqual(env.spawnCalls[0], {
-    cmd: "claude",
-    args: ["--print", "--permission-mode", "auto"],
-  });
+  assert.equal(env.spawnCalls[0].cmd, "claude");
+  assert.deepEqual(env.spawnCalls[0].args, ["--print", "--permission-mode", "auto"]);
+});
+
+test("fake spawner records the stdin a handler pipes to a child", async () => {
+  const env = makeFakeEnv();
+
+  await env.spawn("claude", ["--print"], { stdin: "the prompt" });
+
+  assert.equal(env.spawnCalls[0].stdin, "the prompt");
 });
 
 test("fake spawner defaults to a clean zero-exit result when queue is empty", async () => {

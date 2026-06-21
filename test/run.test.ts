@@ -82,15 +82,16 @@ test("gathers ready issues (excluding done/) + git log + ralph prompt, spawns on
   assert.equal(result.ok, true);
   assert.equal(result.spawned, true);
 
-  // Exactly one `claude --print --permission-mode auto <prompt>` spawn.
+  // Exactly one `claude --print --permission-mode auto` spawn.
   const agentCalls = env.spawnCalls.filter(
     (c) => c.cmd === "claude" && c.args.includes("--print"),
   );
   assert.equal(agentCalls.length, 1);
-  assert.deepEqual(agentCalls[0].args.slice(0, 3), ["--print", "--permission-mode", "auto"]);
+  assert.deepEqual(agentCalls[0].args, ["--print", "--permission-mode", "auto"]);
 
-  const prompt = agentCalls[0].args[3];
-  // Ralph prompt + recent commits + the ready issue are all in context.
+  // The prompt is delivered via STDIN, never as a CLI arg — so a large
+  // multi-line prompt can't be mangled by Windows shell quoting (issue 14).
+  const prompt = agentCalls[0].stdin ?? "";
   assert.match(prompt, /RALPH PROMPT BODY/);
   assert.match(prompt, /abc123 earlier commit/);
   assert.match(prompt, /Do the ready thing/);

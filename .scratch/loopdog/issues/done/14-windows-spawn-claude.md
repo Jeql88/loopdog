@@ -1,6 +1,28 @@
 # 14 — Windows: `run`/`loop` cannot spawn the `claude` (or `git`) CLI
 
-> Status: ready-for-agent
+> Status: done
+
+## Resolution (2026-06-21)
+
+Fixed by moving the prompt off argv and onto **stdin**, then using a shell only
+on Windows to launch the `.cmd` shims:
+
+- `Env.spawn` gained an optional `SpawnOptions.stdin`; `run` now passes the
+  assembled ralph prompt via `stdin` and only space-free flags on argv.
+- `realEnv().spawn` writes `options.stdin` to the child and uses
+  `shell: process.platform === "win32"` so `claude`/`git` shims launch. Safe
+  because no large/arbitrary text is on the command line anymore.
+- Verified on Windows: `claude --version` and `git --version` launch (code 0),
+  and a multi-line prompt piped via stdin round-trips byte-for-byte (proven with
+  `git hash-object --stdin` matching an independently-computed blob hash).
+- The slice-12 acceptance demo then ran fully autonomously: Claude created
+  hello.js + test, `npm test` passed, it committed twice and archived the issue
+  to `done/`.
+
+Known cosmetic follow-up (not blocking): `shell:true` emits Node's DEP0190
+warning on stderr. Harmless here (args are controlled and space-free), but a
+future tidy could silence it (e.g. resolve the executable + cross-spawn-style
+quoting) if the noise bothers users.
 
 ## Parent
 

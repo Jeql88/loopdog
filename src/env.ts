@@ -21,12 +21,27 @@ export interface Env {
   mkdir(path: string): Promise<void>;
   /** List the entry names (not full paths) directly inside a directory. */
   readdir(path: string): Promise<string[]>;
-  /** Spawn a child process and resolve once it exits. */
-  spawn(cmd: string, args: string[]): Promise<SpawnResult>;
+  /**
+   * Spawn a child process and resolve once it exits. On Windows a shell is used
+   * so `.cmd` shims on PATH (claude, git) launch, which means **`args` must be
+   * shell-safe** — short, space-free flags and tokens only. Anything large or
+   * arbitrary (the ralph prompt) must be passed via `options.stdin`, never as
+   * an arg. (See issue 14.)
+   */
+  spawn(cmd: string, args: string[], options?: SpawnOptions): Promise<SpawnResult>;
   /** The current working directory. */
   cwd(): string;
   /** Write a line to the user-facing output stream. */
   writeOut(line: string): void;
+}
+
+export interface SpawnOptions {
+  /**
+   * Text to write to the child's stdin, then close it. Used to hand a large
+   * payload (the ralph prompt) to `claude` without putting it on the command
+   * line — where a shell could mangle or mis-quote it (see issue 14).
+   */
+  stdin?: string;
 }
 
 export interface SpawnResult {
@@ -59,15 +74,26 @@ export function realEnv(): Env {
       await mkdir(path, { recursive: true });
     },
     readdir: (path) => readdir(path),
-    spawn: (cmd, args) =>
+    spawn: (cmd, args, options) =>
       new Promise<SpawnResult>((resolve, reject) => {
-        const child = nodeSpawn(cmd, args, { shell: false });
+        // On Windows the `claude` / `git` entrypoints on PATH are `.cmd` shims,
+        // which spawn cannot launch by bare name without a shell (ENOENT), and
+        // which Node refuses to launch by full path without one (EINVAL). So we
+        // use a shell on Windows. This is safe here because no large/untrusted
+        // text rides on the command line — the prompt is piped via stdin — so
+        // there is nothing for the shell to mis-quote. (See issue 14.)
+        const child = nodeSpawn(cmd, args, {
+          shell: process.platform === "win32",
+        });
         let stdout = "";
         let stderr = "";
         child.stdout?.on("data", (chunk) => (stdout += chunk));
         child.stderr?.on("data", (chunk) => (stderr += chunk));
         child.on("error", reject);
         child.on("close", (code) => resolve({ code, stdout, stderr }));
+        if (options?.stdin !== undefined) {
+          child.stdin?.end(options.stdin);
+        }
       }),
     cwd: () => process.cwd(),
     writeOut: (line) => process.stdout.write(`${line}\n`),

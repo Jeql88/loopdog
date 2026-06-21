@@ -1,9 +1,11 @@
-import type { Env, SpawnResult } from "../../src/env.ts";
+import type { Env, SpawnResult, SpawnOptions } from "../../src/env.ts";
 
 /** One recorded `spawn` call, for asserting what a handler tried to run. */
 export interface SpawnCall {
   cmd: string;
   args: string[];
+  /** What the handler piped to the child's stdin, if anything. */
+  stdin?: string;
 }
 
 export interface FakeEnvOptions {
@@ -96,8 +98,8 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
       }
       return [...names].sort();
     },
-    async spawn(cmd, args) {
-      spawnCalls.push({ cmd, args });
+    async spawn(cmd, args, options) {
+      spawnCalls.push({ cmd, args, stdin: options?.stdin });
       if (cmd === "claude" && !claudeOnPath) {
         throw new Error(`spawn claude ENOENT`);
       }
