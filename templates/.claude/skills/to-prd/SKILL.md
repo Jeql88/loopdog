@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 This skill takes the current conversation context and codebase understanding and produces a PRD. Do NOT interview the user — just synthesize what you already know.
 
-The issue tracker and triage label vocabulary should have been provided to you — run `/setup-matt-pocock-skills` if not.
+The issue tracker and triage label vocabulary should have been provided to you — run `/configure-workflow` if not.
 
 ## Process
 
@@ -73,3 +73,15 @@ A description of the things that are out of scope for this PRD.
 Any further notes about the feature.
 
 </prd-template>
+
+---
+
+## Before you finish (guardrails)
+
+Read `loopdog.json` and honour its `guardrails` flags before printing either block.
+
+- If `guardrails.contextHygiene` is true (default): _"The PRD is written and is the
+  durable record — this synthesis context is now spent. `/clear` so the slicing starts
+  in the smart zone."_
+- If `guardrails.nextStepHints` is true (default), end with:
+  > **Next:** `/clear`, then run `/to-issues` to slice this PRD into vertical tracer bullets.

@@ -10,7 +10,7 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings.
 
-The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `docs/agents/issue-tracker.md` is missing.
+The issue tracker should have been provided to you — run `/configure-workflow` if `docs/agents/issue-tracker.md` is missing.
 
 ## Process
 
@@ -33,7 +33,7 @@ Look for the originating spec, in this order:
 
 ### 3. Identify the standards sources
 
-Anything in the repo that documents how code should be written, such as `CODING_STANDARDS.md` or `CONTRIBUTING.md`.
+Anything in the repo that documents how code should be written. Always include `CONVENTIONS.md` at the repo root if it exists — it is the workflow's canonical coding-standards file, shipped by `loopdog init` and read by `/tdd` too. Also check `CODING_STANDARDS.md` and `CONTRIBUTING.md`. The Standards sub-agent reviews the diff against whatever these files document.
 
 ### 4. Spawn both sub-agents in parallel
 
@@ -67,3 +67,15 @@ A change can pass one axis and fail the other:
 - Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
 
 Reporting them separately stops one axis from masking the other.
+
+---
+
+## Before you finish (guardrails)
+
+Read `loopdog.json` and honour its `guardrails` flags before printing either block.
+
+- If `guardrails.contextHygiene` is true (default): _"Review is a smart-zone step — this
+  context now holds the full diff and both reports. `/clear` before deepening."_
+- If `guardrails.nextStepHints` is true (default), end with:
+  > **Next:** `/clear`, then run `/improve-codebase-architecture` to find module-deepening
+  > opportunities the review surfaced.

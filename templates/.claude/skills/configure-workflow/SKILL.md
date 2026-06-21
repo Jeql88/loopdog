@@ -1,12 +1,17 @@
 ---
-name: setup-matt-pocock-skills
-description: Configure this repo for the engineering skills — set up its issue tracker, triage label vocabulary, and domain doc layout. Run once before first use of the other engineering skills.
+name: configure-workflow
+description: Configure this repo for the loopdog workflow — set up its issue tracker, triage label vocabulary, and domain doc layout, and merge the result into CLAUDE.md. Run once after `loopdog init`, before first use of the other workflow skills.
 disable-model-invocation: true
 ---
 
-# Setup Matt Pocock's Skills
+# Configure Workflow
 
-Scaffold the per-repo configuration that the engineering skills assume:
+The smart-zone counterpart to `loopdog init`'s dumb-zone file delivery. `init`
+deterministically copies the payload; this skill runs the configuration
+interview that needs judgement, then surgically merges its summary into
+`CLAUDE.md`.
+
+Scaffold the per-repo configuration that the workflow skills assume:
 
 - **Issue tracker** — where issues live (GitHub by default; local markdown is also supported out of the box)
 - **Triage labels** — the strings used for the five canonical triage roles
@@ -43,6 +48,11 @@ Default posture: these skills were designed for GitHub. If a `git remote` points
 - **GitLab** — issues live in the repo's GitLab Issues (uses the [`glab`](https://gitlab.com/gitlab-org/cli) CLI)
 - **Local markdown** — issues live as files under `.scratch/<feature>/` in this repo (good for solo projects or repos without a remote)
 - **Other** (Jira, Linear, etc.) — ask the user to describe the workflow in one paragraph; the skill will record it as freeform prose
+
+> AFK note: `loopdog run`/`loop` (the autonomous loop) support **local-markdown
+> issues only** in v1. If the user wants to leave the loop running AFK, steer
+> them toward **local markdown** — a remote tracker gates the loop with an
+> explanatory message (the interactive skills still work either way).
 
 If — and only if — the user picked **GitHub** or **GitLab**, ask one follow-up:
 

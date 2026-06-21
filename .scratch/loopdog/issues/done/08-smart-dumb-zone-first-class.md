@@ -1,6 +1,6 @@
 # 08 — Smart/dumb-zone made first-class: docs + skill footers/reminders
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Break a plan into independently-grabbable issues using vertical slices (tracer bullets).
 
-The issue tracker and triage label vocabulary should have been provided to you — run `/setup-matt-pocock-skills` if not.
+The issue tracker and triage label vocabulary should have been provided to you — run `/configure-workflow` if not.
 
 ## Process
 
@@ -82,3 +82,16 @@ Or "None - can start immediately" if no blockers.
 </issue-template>
 
 Do NOT close or modify any parent issue.
+
+---
+
+## Before you finish (guardrails)
+
+Read `loopdog.json` and honour its `guardrails` flags before printing either block.
+
+- If `guardrails.contextHygiene` is true (default): _"The slices are published. Slicing
+  is a smart-zone step — `/clear` before implementing so each loop iteration starts
+  fresh."_
+- If `guardrails.nextStepHints` is true (default), end with:
+  > **Next:** `/clear`, then run `loopdog run` (one slice) or `loopdog loop` (until dry)
+  > to implement the `ready-for-agent` slices. Review with `/review` afterwards.

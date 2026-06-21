@@ -46,6 +46,8 @@ RIGHT (vertical):
 
 When exploring the codebase, read `CONTEXT.md` (if it exists) so that test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
 
+Also read `CONVENTIONS.md` at the repo root (if it exists) and apply its coding standards while implementing — naming, structure, error handling, test style. These are the project's standards, pushed into every slice so they don't have to be restated each time.
+
 Before writing any code:
 
 - [ ] Confirm with user what interface changes are needed

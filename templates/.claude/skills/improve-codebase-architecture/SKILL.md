@@ -64,3 +64,14 @@ Side effects happen inline as decisions crystallize — run the `/domain-modelin
 - **Sharpening a fuzzy term during the conversation?** Update `CONTEXT.md` right there.
 - **User rejects the candidate with a load-bearing reason?** Offer an ADR, framed as: _"Want me to record this as an ADR so future architecture reviews don't re-suggest it?"_ Only offer when the reason would actually be needed by a future explorer to avoid re-suggesting the same thing — skip ephemeral reasons ("not worth it right now") and self-evident ones.
 - **Want to explore alternative interfaces for the deepened module?** Run the `/codebase-design` skill and use its design-it-twice parallel sub-agent pattern.
+
+---
+
+## Before you finish (guardrails)
+
+Read `loopdog.json` and honour its `guardrails` flags before printing either block.
+
+- If `guardrails.contextHygiene` is true (default): _"That closes the loop for this work.
+  `/clear` before starting the next feature so the next grilling begins in the smart zone."_
+- If `guardrails.nextStepHints` is true (default), end with:
+  > **Next:** the loop is complete. For the next feature, `/clear`, then run `/grill-me`.

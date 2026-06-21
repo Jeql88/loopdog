@@ -1,6 +1,6 @@
 # 09 — `CONVENTIONS.md` read by `/tdd` and `/review`
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

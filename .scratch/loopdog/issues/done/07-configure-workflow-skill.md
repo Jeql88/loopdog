@@ -1,6 +1,6 @@
 # 07 — `/configure-workflow` skill: rename + interview + surgical `CLAUDE.md` merge
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

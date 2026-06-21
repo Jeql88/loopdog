@@ -1,7 +1,7 @@
 # CLAUDE.md
 
-This repo follows Matt Pocock's AI engineering workflow. See `WORKFLOW.md` for the
-end-to-end loop and which skill runs at each stage.
+This repo follows the loopdog AI-engineering workflow. See `WORKFLOW.md` for the
+end-to-end loop and which command runs at each stage.
 
 ## Agent skills
 
