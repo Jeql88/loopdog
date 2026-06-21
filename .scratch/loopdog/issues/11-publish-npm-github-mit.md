@@ -5,10 +5,22 @@
 ## Comments
 
 Gated to `ready-for-human` (2026-06-21): publishing needs the author's npm
-login and a GitHub repo/credentials — it cannot run unattended. The local-only
-parts (MIT LICENSE, `npm pack` tarball verification) can be done by an agent, but
-the actual npm publish + public GitHub push are human steps. Resume when the
-author is ready to publish.
+login and a GitHub repo/credentials — it cannot run unattended.
+
+Local-only prep DONE (2026-06-21):
+- [x] MIT `LICENSE` at repo root (copyright "Jose Delgado" — confirm/adjust the name).
+- [x] `package.json` `files` ships `dist/` + `templates/` (+ `ralph/`, needed by `run`);
+  added a `prepublishOnly: npm run build` hook; neutralised the description.
+- [x] Tarball verified with `npm pack --dry-run` — contains dist/ + templates/ + ralph/
+  + LICENSE + README, and excludes src/test/.scratch.
+- [x] Verified `npx loopdog init` works from the PACKED, INSTALLED tarball in a clean
+  repo (25 files delivered, exit 0) — no source-tree assumptions. (AC 26-29 met.)
+
+REMAINING — human steps (do not automate):
+- [ ] Bump `version` from 0.0.0 to a real release (e.g. 0.1.0).
+- [ ] Confirm npm name `loopdog` is available (fall back to a scope/near-name if not).
+- [ ] `npm publish` to public npm (needs `npm login`).
+- [ ] Create the public GitHub repo and push (AC 30).
 
 ## Parent
 

@@ -1,7 +1,7 @@
 {
   "name": "loopdog",
   "version": "0.0.0",
-  "description": "Drop a Matt-Pocock-style AI-engineering workflow into any repo and run it autonomously.",
+  "description": "Drop an AI-engineering workflow into any repo and run its autonomous implementation loop.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -15,7 +15,8 @@
   "scripts": {
     "build": "tsc",
     "test": "tsx --test test/**/*.test.ts",
-    "loopdog": "tsx src/cli.ts"
+    "loopdog": "tsx src/cli.ts",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=20"
