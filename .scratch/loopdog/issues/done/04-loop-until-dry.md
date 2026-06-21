@@ -1,6 +1,6 @@
 # 04 — `loop`: repeat `run` until dry, bounded
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 
