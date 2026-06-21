@@ -87,3 +87,23 @@ test("stops immediately when an iteration fails (claude not on PATH)", async () 
   assert.equal(result.iterations, 1);
   assert.equal(result.stoppedBy, "error");
 });
+
+test("loop declines (does not spin) when a remote issue tracker is configured", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/docs/agents/issue-tracker.md": "# Issue tracker: GitLab\n",
+    },
+  });
+
+  const result = await runLoop(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    maxIterations: 50,
+  });
+
+  // The gate makes the first iteration fail; the loop bails instead of spinning.
+  assert.equal(result.iterations, 1);
+  assert.equal(result.stoppedBy, "error");
+  assert.equal(env.spawnCalls.length, 0);
+});

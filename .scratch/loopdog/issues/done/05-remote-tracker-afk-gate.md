@@ -1,6 +1,6 @@
 # 05 — Remote-tracker AFK gate
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

@@ -1,6 +1,14 @@
 # 11 — Publish to public npm + public GitHub under MIT
 
-> Status: ready-for-agent
+> Status: ready-for-human
+
+## Comments
+
+Gated to `ready-for-human` (2026-06-21): publishing needs the author's npm
+login and a GitHub repo/credentials — it cannot run unattended. The local-only
+parts (MIT LICENSE, `npm pack` tarball verification) can be done by an agent, but
+the actual npm publish + public GitHub push are human steps. Resume when the
+author is ready to publish.
 
 ## Parent
 

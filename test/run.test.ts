@@ -5,6 +5,47 @@ import { makeFakeEnv } from "./helpers/fake-env.ts";
 
 const RALPH = "RALPH PROMPT BODY";
 
+test("declines AFK run when a remote (GitHub) issue tracker is configured", async () => {
+  const out: string[] = [];
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    writeOut: (s) => out.push(s),
+    files: {
+      "/repo/docs/agents/issue-tracker.md": "# Issue tracker: GitHub\n\nIssues live as GitHub issues.",
+    },
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.spawned, false);
+  // No agent and not even the PATH probe — the gate short-circuits everything.
+  assert.equal(env.spawnCalls.length, 0);
+  // Clear, explanatory message about local-markdown-only AFK support.
+  assert.match(out.join("\n"), /local/i);
+  assert.match(out.join("\n"), /markdown/i);
+});
+
+test("local-markdown tracker proceeds even when its prose mentions GitHub", async () => {
+  // The real local tracker doc says "No GitHub issues are created" — a naive
+  // keyword sniff would wrongly gate it. The explicit "Local Markdown" heading
+  // must win.
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/docs/agents/issue-tracker.md":
+        "# Issue tracker: Local Markdown\n\nNo GitHub issues are created — everything stays local.",
+    },
+    spawnResults: [{ stdout: "claude 1.0" }, { stdout: "" }, { stdout: "did work" }],
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  // Not gated: it proceeded to spawn the agent.
+  assert.equal(result.ok, true);
+  assert.ok(env.spawnCalls.some((c) => c.cmd === "claude" && c.args.includes("--print")));
+});
+
 test("fails early with install guidance when claude is not on PATH", async () => {
   const out: string[] = [];
   // claudeOnPath: false makes the fake's spawn throw ENOENT for `claude`,

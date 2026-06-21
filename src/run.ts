@@ -25,6 +25,15 @@ export interface RunResult {
  * agent exactly once, and report whether it signalled "no ready issues".
  */
 export async function runRun(env: Env, options: RunOptions): Promise<RunResult> {
+  if ((await detectIssueSource(env)) === "remote") {
+    env.writeOut(
+      "loopdog: a remote issue tracker is configured, but AFK run/loop in v1\n" +
+        "supports local-markdown issues only (under .scratch/*/issues/). The\n" +
+        "interactive workflow skills still work; only the autonomous loop is gated.",
+    );
+    return { ok: false, spawned: false, stopSignal: false };
+  }
+
   if (!(await claudeOnPath(env))) {
     env.writeOut(
       "loopdog: the `claude` CLI was not found on your PATH.\n" +
@@ -112,6 +121,24 @@ function assemblePrompt(ralph: string, commits: string, issues: string): string 
     "## Open issues",
     issues,
   ].join("\n\n");
+}
+
+/**
+ * Whether issues come from a remote tracker (GitHub/GitLab) or local markdown.
+ * The choice is recorded by `/configure-workflow` in the issue-tracker doc's
+ * heading; absence of the file means the local-markdown default. AFK run/loop
+ * supports local only — this is the signal the gate keys off.
+ */
+async function detectIssueSource(env: Env): Promise<"local" | "remote"> {
+  const docPath = `${env.cwd()}/docs/agents/issue-tracker.md`;
+  if (!(await env.exists(docPath))) return "local";
+  const doc = await env.readFile(docPath);
+  // An explicit "local markdown" declaration is authoritative — a local doc may
+  // legitimately mention GitHub/GitLab in prose (e.g. "no GitHub issues are
+  // created"), so it must win over the keyword sniff below.
+  if (/local\s*markdown/i.test(doc)) return "local";
+  // Otherwise, a GitHub/GitLab tracker named anywhere in the doc gates AFK.
+  return /github|gitlab/i.test(doc) ? "remote" : "local";
 }
 
 /** True if the `claude` binary can be spawned (i.e. it is on PATH). */
