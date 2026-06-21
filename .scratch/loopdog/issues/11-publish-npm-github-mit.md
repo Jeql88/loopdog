@@ -8,7 +8,7 @@ Gated to `ready-for-human` (2026-06-21): publishing needs the author's npm
 login and a GitHub repo/credentials — it cannot run unattended.
 
 Local-only prep DONE (2026-06-21):
-- [x] MIT `LICENSE` at repo root (copyright "Jose Delgado" — confirm/adjust the name).
+- [x] MIT `LICENSE` at repo root (copyright "Josh Edward Lui").
 - [x] `package.json` `files` ships `dist/` + `templates/` (+ `ralph/`, needed by `run`);
   added a `prepublishOnly: npm run build` hook; neutralised the description.
 - [x] Tarball verified with `npm pack --dry-run` — contains dist/ + templates/ + ralph/
