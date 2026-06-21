@@ -1,8 +1,9 @@
 # loopdog
 
-> **Status: early development.** The CLI scaffold and its one test seam are in place
-> (slice 01). The `init`, `run`, and `loop` commands are stubbed and land in subsequent
-> slices. Not yet published to npm — `npx loopdog` will work once slice 11 ships.
+> **Status: feature-complete, not yet published.** All three commands (`init`, `run`,
+> `loop`) are implemented and tested, and the package installs and runs from a packed
+> tarball. It is **not yet on public npm**, so `npx loopdog` won't work until the author
+> publishes it (and pushes the source to GitHub). Until then, install from a local clone.
 
 Drop a [Matt-Pocock-style](https://www.aihero.dev/) AI-engineering workflow into any
 repo and run its autonomous implementation loop — cross-platform, including native
