@@ -45,6 +45,12 @@ export interface SpawnOptions {
    */
   stdin?: string;
   /**
+   * Run the child process in this directory. When undefined, the child
+   * inherits the parent's working directory (today's behaviour). Used by the
+   * parallel orchestrator to run each agent inside its own git worktree.
+   */
+  cwd?: string;
+  /**
    * Called with each chunk of the child's stdout/stderr as it arrives, so a
    * long-running agent can be mirrored to the terminal live instead of dumped
    * at the end. The port stays presentation-free: it just forwards chunks; the
@@ -94,6 +100,7 @@ export function realEnv(): Env {
         // there is nothing for the shell to mis-quote. (See issue 14.)
         const child = nodeSpawn(cmd, args, {
           shell: process.platform === "win32",
+          ...(options?.cwd !== undefined && { cwd: options.cwd }),
         });
         let stdout = "";
         let stderr = "";

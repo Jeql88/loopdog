@@ -44,6 +44,22 @@ test("fake spawner records the stdin a handler pipes to a child", async () => {
   assert.equal(env.spawnCalls[0].stdin, "the prompt");
 });
 
+test("fake spawner records the cwd a handler sets on a spawn call", async () => {
+  const env = makeFakeEnv();
+
+  await env.spawn("git", ["status"], { cwd: "/worktree/slice-01" });
+
+  assert.equal(env.spawnCalls[0].cwd, "/worktree/slice-01");
+});
+
+test("fake spawner records cwd as undefined when omitted", async () => {
+  const env = makeFakeEnv();
+
+  await env.spawn("git", ["log"]);
+
+  assert.equal(env.spawnCalls[0].cwd, undefined);
+});
+
 test("fake spawner defaults to a clean zero-exit result when queue is empty", async () => {
   const env = makeFakeEnv();
 

@@ -6,6 +6,8 @@ export interface SpawnCall {
   args: string[];
   /** What the handler piped to the child's stdin, if anything. */
   stdin?: string;
+  /** The working directory set for this spawn, if any. */
+  cwd?: string;
 }
 
 export interface FakeEnvOptions {
@@ -102,7 +104,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
       return [...names].sort();
     },
     async spawn(cmd, args, options) {
-      spawnCalls.push({ cmd, args, stdin: options?.stdin });
+      spawnCalls.push({ cmd, args, stdin: options?.stdin, cwd: options?.cwd });
       if (cmd === "claude" && !claudeOnPath) {
         throw new Error(`spawn claude ENOENT`);
       }
