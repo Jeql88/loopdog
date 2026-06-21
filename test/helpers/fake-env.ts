@@ -15,6 +15,8 @@ export interface FakeEnvOptions {
   cwd?: string;
   /** Sink for `writeOut`. Defaults to discarding output. */
   writeOut?: (line: string) => void;
+  /** Sink for raw `write` chunks (streamed mirror). Defaults to discarding. */
+  write?: (chunk: string) => void;
   /**
    * Canned responses for `spawn`, consumed in order. When exhausted, `spawn`
    * resolves to a zero-exit empty result. Each entry may be a partial result.
@@ -55,6 +57,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   const claudeOnPath = options.claudeOnPath ?? true;
   const cwd = options.cwd ?? "/repo";
   const writeOut = options.writeOut ?? (() => {});
+  const write = options.write ?? (() => {});
 
   // Register parent directories so readdir/exists behave for seeded files.
   for (const path of files.keys()) {
@@ -104,12 +107,18 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
         throw new Error(`spawn claude ENOENT`);
       }
       const next = spawnQueue.shift();
-      return { ...DEFAULT_SPAWN, ...next };
+      const result = { ...DEFAULT_SPAWN, ...next };
+      // Exercise the streaming path: real spawn forwards each output chunk to
+      // onData as it arrives, so the fake forwards the canned output once.
+      if (result.stdout) options?.onData?.(result.stdout, "stdout");
+      if (result.stderr) options?.onData?.(result.stderr, "stderr");
+      return result;
     },
     cwd() {
       return cwd;
     },
     writeOut,
+    write,
     spawnCalls,
     get files() {
       return Object.fromEntries(files);

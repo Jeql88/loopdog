@@ -1,8 +1,12 @@
 # 11 — Publish to public npm + public GitHub under MIT
 
-> Status: ready-for-human
+> Status: done
 
 ## Comments
+
+DONE (2026-06-21): all human steps completed — `loopdog@0.1.0` is live on
+public npm, source is on public GitHub (github.com/Jeql88/loopdog) under MIT.
+Verified: `npm view loopdog version` → 0.1.0; `git remote` → Jeql88/loopdog.
 
 Gated to `ready-for-human` (2026-06-21): publishing needs the author's npm
 login and a GitHub repo/credentials — it cannot run unattended.

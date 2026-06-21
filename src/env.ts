@@ -31,8 +31,10 @@ export interface Env {
   spawn(cmd: string, args: string[], options?: SpawnOptions): Promise<SpawnResult>;
   /** The current working directory. */
   cwd(): string;
-  /** Write a line to the user-facing output stream. */
+  /** Write a line (a trailing newline is added) to the user-facing stream. */
   writeOut(line: string): void;
+  /** Write a raw chunk (no newline added) — for mirroring streamed output. */
+  write(chunk: string): void;
 }
 
 export interface SpawnOptions {
@@ -42,6 +44,14 @@ export interface SpawnOptions {
    * line — where a shell could mangle or mis-quote it (see issue 14).
    */
   stdin?: string;
+  /**
+   * Called with each chunk of the child's stdout/stderr as it arrives, so a
+   * long-running agent can be mirrored to the terminal live instead of dumped
+   * at the end. The port stays presentation-free: it just forwards chunks; the
+   * caller decides whether/where to show them. Captured output is still
+   * returned in `SpawnResult` regardless. (See issue 15.)
+   */
+  onData?: (chunk: string, stream: "stdout" | "stderr") => void;
 }
 
 export interface SpawnResult {
@@ -87,8 +97,14 @@ export function realEnv(): Env {
         });
         let stdout = "";
         let stderr = "";
-        child.stdout?.on("data", (chunk) => (stdout += chunk));
-        child.stderr?.on("data", (chunk) => (stderr += chunk));
+        child.stdout?.on("data", (chunk) => {
+          stdout += chunk;
+          options?.onData?.(String(chunk), "stdout");
+        });
+        child.stderr?.on("data", (chunk) => {
+          stderr += chunk;
+          options?.onData?.(String(chunk), "stderr");
+        });
         child.on("error", reject);
         child.on("close", (code) => resolve({ code, stdout, stderr }));
         if (options?.stdin !== undefined) {
@@ -97,5 +113,6 @@ export function realEnv(): Env {
       }),
     cwd: () => process.cwd(),
     writeOut: (line) => process.stdout.write(`${line}\n`),
+    write: (chunk) => process.stdout.write(chunk),
   };
 }

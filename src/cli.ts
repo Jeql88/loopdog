@@ -46,6 +46,16 @@ export async function run(
         ralphPrompt,
         permissionMode: config.loop.permissionMode,
       });
+      // The agent's output is streamed live during the run; here we only add a
+      // one-line summary so the run never exits silently. runRun prints its own
+      // guard messages (e.g. claude-not-on-PATH) when it can't proceed.
+      if (result.ok) {
+        env.writeOut(
+          result.stopSignal
+            ? "loopdog run: no ready slices — nothing to do."
+            : "loopdog run: implemented one slice.",
+        );
+      }
       return result.ok ? 0 : 1;
     }
     case "loop": {

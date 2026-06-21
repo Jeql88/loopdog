@@ -17,6 +17,8 @@ export interface RunResult {
   spawned: boolean;
   /** Whether the agent reported the stop signal (no ready issues left). */
   stopSignal: boolean;
+  /** Everything the spawned agent wrote to stdout (empty if not spawned). */
+  output: string;
 }
 
 /**
@@ -31,7 +33,7 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
         "supports local-markdown issues only (under .scratch/*/issues/). The\n" +
         "interactive workflow skills still work; only the autonomous loop is gated.",
     );
-    return { ok: false, spawned: false, stopSignal: false };
+    return { ok: false, spawned: false, stopSignal: false, output: "" };
   }
 
   if (!(await claudeOnPath(env))) {
@@ -39,7 +41,7 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
       "loopdog: the `claude` CLI was not found on your PATH.\n" +
         "Install Claude Code (https://docs.claude.com/en/docs/claude-code) and try again.",
     );
-    return { ok: false, spawned: false, stopSignal: false };
+    return { ok: false, spawned: false, stopSignal: false, output: "" };
   }
 
   const issues = await gatherReadyIssues(env);
@@ -52,11 +54,13 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
   const result = await env.spawn(
     "claude",
     ["--print", "--permission-mode", options.permissionMode],
-    { stdin: prompt },
+    // Mirror the agent's output live so a multi-minute headless run is visible
+    // as it works, rather than buffered and dumped only when it exits.
+    { stdin: prompt, onData: (chunk) => env.write(chunk) },
   );
 
   const stopSignal = result.stdout.includes(STOP_SIGNAL);
-  return { ok: true, spawned: true, stopSignal };
+  return { ok: true, spawned: true, stopSignal, output: result.stdout };
 }
 
 /**

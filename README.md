@@ -1,9 +1,9 @@
 # loopdog
 
-> **Status: feature-complete, not yet published.** All three commands (`init`, `run`,
-> `loop`) are implemented and tested, and the package installs and runs from a packed
-> tarball. It is **not yet on public npm**, so `npx loopdog` won't work until the author
-> publishes it (and pushes the source to GitHub). Until then, install from a local clone.
+> **Status: published.** All three commands (`init`, `run`, `loop`) are implemented and
+> tested. `loopdog` is on [public npm](https://www.npmjs.com/package/loopdog) and the
+> source is on [GitHub](https://github.com/Jeql88/loopdog) under MIT — so `npx loopdog`
+> works on a clean machine.
 
 Drop a [Matt-Pocock-style](https://www.aihero.dev/) AI-engineering workflow into any
 repo and run its autonomous implementation loop — cross-platform, including native
@@ -27,11 +27,11 @@ process.
 
 ## Commands
 
-| Command | Zone | What it does |
-|---|---|---|
-| `loopdog init` | dumb | Deterministically copies the workflow payload (skills, `WORKFLOW.md`, `CONVENTIONS.md`, `docs/agents/` seeds, `loopdog.json`, a stub `CLAUDE.md`) into your repo. **Write-if-absent — never overwrites your files.** Prints a write/skip summary and points you at `/configure-workflow`. |
-| `loopdog run` | dumb | One iteration of the ralph loop: gather open issues + recent commits + the ralph prompt, spawn Claude Code headless to implement exactly one `ready-for-agent` slice, then stop. |
-| `loopdog loop` | dumb | Repeat `run` — each in **fresh context** — until no ready slices remain, bounded by a `maxIterations` backstop. |
+| Command | What it does |
+|---|---|
+| `loopdog init` | Deterministically copies the workflow payload (skills, `WORKFLOW.md`, `CONVENTIONS.md`, `docs/agents/` seeds, `loopdog.json`, a stub `CLAUDE.md`) into your repo. **Write-if-absent — never overwrites your files.** Prints a write/skip summary and points you at `/configure-workflow`. |
+| `loopdog run` | One iteration of the ralph loop: gather open issues + recent commits + the ralph prompt, spawn Claude Code headless to implement exactly one `ready-for-agent` slice, then stop. |
+| `loopdog loop` | Repeat `run` — each in **fresh context** — until no ready slices remain, bounded by a `maxIterations` backstop. |
 
 A companion skill, **`/configure-workflow`**, runs *inside* Claude Code to do the
 smart-zone configuration interview (issue tracker, triage labels, domain-doc layout) and

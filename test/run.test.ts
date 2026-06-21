@@ -128,3 +128,27 @@ test("no stop signal when the agent did work", async () => {
 
   assert.equal(result.stopSignal, false);
 });
+
+test("mirrors the agent's output live through env.write as it streams", async () => {
+  // The agent's run can take minutes; its output must be surfaced as it
+  // arrives, not buffered and dumped at the end. runRun passes an onData mirror
+  // to spawn, which writes each chunk through the port's raw `write`.
+  const streamed: string[] = [];
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    write: (chunk) => streamed.push(chunk),
+    spawnResults: [
+      { stdout: "claude 1.0" }, // version probe
+      { stdout: "abc earlier" }, // git log
+      { stdout: "implemented slice 04, committed." }, // agent run
+    ],
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  assert.equal(result.ok, true);
+  // The agent's actual transcript reached the user-facing stream live.
+  assert.ok(streamed.join("").includes("implemented slice 04, committed."));
+  // And the same text is still captured on the result for the stop-signal check.
+  assert.match(result.output, /implemented slice 04/);
+});
