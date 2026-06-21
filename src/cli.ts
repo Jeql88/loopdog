@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { Env } from "./env.ts";
 import { realEnv } from "./env.ts";
 import { runInit, printInitSummary } from "./init.ts";
+import { runRun } from "./run.ts";
 
 const USAGE = `loopdog — drop an AI-engineering workflow into a repo and run it.
 
@@ -36,9 +37,13 @@ export async function run(
       printInitSummary(env, result);
       return 0;
     }
-    case "run":
+    case "run": {
+      const ralphPrompt = await env.readFile(defaultRalphPromptPath());
+      const result = await runRun(env, { ralphPrompt, permissionMode: "auto" });
+      return result.ok ? 0 : 1;
+    }
     case "loop":
-      // Handlers land in later slices; for now the command is recognised.
+      // Handler lands in slice 04; for now the command is recognised.
       env.writeOut(`loopdog ${command}: not yet implemented`);
       return 0;
     default:
@@ -53,7 +58,17 @@ export async function run(
  * `package.json` `files` array ships both `dist/` and `templates/` together.
  */
 function defaultTemplatesRoot(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
+  return packageRelative("templates");
+}
+
+/** The shipped ralph per-iteration prompt, resolved relative to this module. */
+function defaultRalphPromptPath(): string {
+  return packageRelative("ralph", "prompt.md");
+}
+
+/** A path under the package root (this module lives in dist/, so go up one). */
+function packageRelative(...parts: string[]): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", ...parts);
 }
 
 /** Binary entrypoint: wire the real environment and exit with the command's code. */

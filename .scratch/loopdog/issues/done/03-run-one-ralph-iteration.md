@@ -1,6 +1,6 @@
 # 03 — `run`: one ralph iteration with a fake spawner
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

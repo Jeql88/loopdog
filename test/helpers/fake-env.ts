@@ -18,6 +18,11 @@ export interface FakeEnvOptions {
    * resolves to a zero-exit empty result. Each entry may be a partial result.
    */
   spawnResults?: Partial<SpawnResult>[];
+  /**
+   * When false, spawning `claude` rejects with an ENOENT-style error, exactly
+   * as real `spawn` does when the binary is not on PATH. Defaults to true.
+   */
+  claudeOnPath?: boolean;
 }
 
 export interface FakeEnv extends Env {
@@ -45,6 +50,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   const dirs = new Set<string>();
   const spawnCalls: SpawnCall[] = [];
   const spawnQueue = [...(options.spawnResults ?? [])];
+  const claudeOnPath = options.claudeOnPath ?? true;
   const cwd = options.cwd ?? "/repo";
   const writeOut = options.writeOut ?? (() => {});
 
@@ -92,6 +98,9 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
     },
     async spawn(cmd, args) {
       spawnCalls.push({ cmd, args });
+      if (cmd === "claude" && !claudeOnPath) {
+        throw new Error(`spawn claude ENOENT`);
+      }
       const next = spawnQueue.shift();
       return { ...DEFAULT_SPAWN, ...next };
     },
