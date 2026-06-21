@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { argv, exit } from "node:process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join } from "node:path";
 import type { Env } from "./env.ts";
 import { realEnv } from "./env.ts";
+import { runInit, printInitSummary } from "./init.ts";
 
 const USAGE = `loopdog — drop an AI-engineering workflow into a repo and run it.
 
@@ -18,14 +20,22 @@ Commands:
  * command handler. Returns the process exit code. All side effects go through
  * `env`, so the whole CLI is driven from tests with a fake env.
  */
-export async function run(argv: string[], env: Env): Promise<number> {
+export async function run(
+  argv: string[],
+  env: Env,
+  templatesRoot: string = defaultTemplatesRoot(),
+): Promise<number> {
   const [command] = argv;
 
   switch (command) {
     case undefined:
       env.writeOut(USAGE);
       return 0;
-    case "init":
+    case "init": {
+      const result = await runInit(env, templatesRoot);
+      printInitSummary(env, result);
+      return 0;
+    }
     case "run":
     case "loop":
       // Handlers land in later slices; for now the command is recognised.
@@ -35,6 +45,15 @@ export async function run(argv: string[], env: Env): Promise<number> {
       env.writeOut(`Unknown command: ${command}\n\n${USAGE}`);
       return 1;
   }
+}
+
+/**
+ * The shipped `templates/` directory, resolved relative to this module. At
+ * runtime this file lives in `dist/`, so `templates/` is one level up — the
+ * `package.json` `files` array ships both `dist/` and `templates/` together.
+ */
+function defaultTemplatesRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
 }
 
 /** Binary entrypoint: wire the real environment and exit with the command's code. */

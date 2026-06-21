@@ -1,6 +1,6 @@
 # 02 — `init` copies the template payload (write-if-absent) + reports
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

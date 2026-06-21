@@ -75,6 +75,11 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
     },
     async readdir(path) {
       const dir = norm(path);
+      // Match real fs: reading a file as a directory fails (ENOTDIR), as does
+      // reading a path that does not exist (ENOENT). This keeps the fake
+      // faithful so file-vs-directory logic is genuinely exercised.
+      if (files.has(dir)) throw new Error(`ENOTDIR: ${path}`);
+      if (!dirs.has(dir)) throw new Error(`ENOENT: ${path}`);
       const prefix = dir.endsWith("/") ? dir : `${dir}/`;
       const names = new Set<string>();
       for (const key of [...files.keys(), ...dirs]) {
