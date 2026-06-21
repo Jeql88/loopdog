@@ -1,6 +1,6 @@
 # 06 — `loopdog.json` config + guardrail wiring
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

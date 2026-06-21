@@ -7,11 +7,7 @@ import { realEnv } from "./env.ts";
 import { runInit, printInitSummary } from "./init.ts";
 import { runRun } from "./run.ts";
 import { runLoop } from "./loop.ts";
-
-// Defaults until slice 06's config loader reads loop.* from loopdog.json.
-// These mirror the loopdog.json defaults in the PRD.
-const DEFAULT_PERMISSION_MODE = "auto";
-const DEFAULT_MAX_ITERATIONS = 50;
+import { loadConfig } from "./config.ts";
 
 const USAGE = `loopdog — drop an AI-engineering workflow into a repo and run it.
 
@@ -44,16 +40,21 @@ export async function run(
       return 0;
     }
     case "run": {
+      const config = await loadConfig(env);
       const ralphPrompt = await env.readFile(defaultRalphPromptPath());
-      const result = await runRun(env, { ralphPrompt, permissionMode: DEFAULT_PERMISSION_MODE });
+      const result = await runRun(env, {
+        ralphPrompt,
+        permissionMode: config.loop.permissionMode,
+      });
       return result.ok ? 0 : 1;
     }
     case "loop": {
+      const config = await loadConfig(env);
       const ralphPrompt = await env.readFile(defaultRalphPromptPath());
       const result = await runLoop(env, {
         ralphPrompt,
-        permissionMode: DEFAULT_PERMISSION_MODE,
-        maxIterations: DEFAULT_MAX_ITERATIONS,
+        permissionMode: config.loop.permissionMode,
+        maxIterations: config.loop.maxIterations,
       });
       env.writeOut(
         `loopdog loop: ran ${result.iterations} iteration(s), stopped by ${result.stoppedBy}.`,
