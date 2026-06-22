@@ -247,6 +247,21 @@ Deferred to a later version (architecture should leave room, but do not build):
   (implementation). Every agent is one fresh solo headless context; no smart-zone stage
   (grill/PRD/slice/review) is auto-chained, and the merge step is mechanical git, not
   judgment. The principle holds.
+- **Parallel mode trades tokens for wall-clock — these are objectives in tension.**
+  loopdog's token story depends on the cross-process prompt cache: each fresh
+  `claude --print` process reuses the previous iteration's cached harness prefix
+  (~200K tokens) at ~0.1× input price instead of paying full price. In the serial
+  loop, iteration N's cache-*write* has settled by the time iteration N+1 starts, so
+  every iteration after the first is a cheap cache-*read*. Parallel mode breaks this:
+  N agents cold-start simultaneously, so all N pay full cache-*write* price before any
+  cache-read can land — the cold-start cost is multiplied by the concurrency width.
+  Parallelism is therefore a **wall-clock optimisation that is token-antithetical to
+  the efficiency work** (the token-efficiency and cache-health PRDs). An adopter
+  reading both PRDs should understand that loopdog can be the cheapest serial loop
+  *or* the fastest parallel loop, but not both at once — those sit on opposite ends of
+  the same lever. Reducing the cold-start multiplication (e.g. staggered warm starts
+  that let each agent inherit the previous one's cache window) is explicitly **future
+  work**, not addressed by this PRD.
 - **Open, low-risk items (sensible defaults, decide at implementation):** exact
   out-of-tree worktree location for `hidden` mode (e.g. a per-repo-hash dir under the
   user's home or OS temp); the precise `status.json` shape; whether `format-patch` or
