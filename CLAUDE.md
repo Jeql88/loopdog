@@ -3,6 +3,12 @@
 This repo follows the loopdog AI-engineering workflow. See `WORKFLOW.md` for the
 end-to-end loop and which command runs at each stage.
 
+## Communication style
+
+When talking to me, optimise for me understanding it — even if it's my first time
+hearing the concept. Explain plainly, define jargon the first time you use it, give a
+quick example or analogy when a term is new. Clarity over impressiveness.
+
 ## Agent skills
 
 ### Issue tracker
