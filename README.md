@@ -71,6 +71,34 @@ default to ON so a newcomer's first run is fully guided.
 }
 ```
 
+## Token cost — why it's cheap (and what breaks that)
+
+loopdog spawns a **fresh `claude --print` process per slice** — no long-lived context
+that degrades. The reason that is affordable rather than ruinous is one thing:
+**Anthropic's cross-process prompt cache is reused across those fresh processes.**
+
+On a validated two-slice loop (real repo, real issues, end-to-end), cache-read was ~83%
+of all cached tokens. Claude Code's fixed harness overhead — system prompt, tool schemas,
+`CLAUDE.md`, skills — is roughly 200K tokens per slice, but because ~83% of that serves
+as cache-*read* (priced at ~0.1× input) rather than cache-*write* (full price), each
+slice cost ~$0.20 and the two-slice loop totalled ~$0.40.
+
+Two levers make this work:
+
+1. **Cross-process cache reuse.** Each slice completes in ~35 seconds — well inside the
+   ~5-minute cache TTL — so the next process inherits a warm cache. The cacheable-prefix
+   ordering (deterministic issue selection, prompt structure, trimmed commit history) keeps
+   the shared prefix stable across iterations so the cache actually hits.
+2. **Sonnet by default.** The `loop` command runs Claude Sonnet, a flat discount on top of
+   cache savings. (You can override via `loopdog.json` if a slice needs a different model.)
+
+**This is fragile.** The cache is the *only* reason loopdog is cheap. The day cache-read
+drops — a slow slice that misses the TTL, a mid-loop model switch, a harness change that
+invalidates the prefix — the per-slice bill jumps roughly 10×. That is why every
+`loopdog loop` run prints a **cache-health verdict** at the end: a plain-English line
+stating whether the cross-iteration cache was healthy, partial, or cold. A silent caching
+regression surfaces as words, not a quietly larger bill.
+
 ## Development
 
 ```bash
