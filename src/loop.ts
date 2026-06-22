@@ -79,6 +79,32 @@ function formatCostSummary(iterations: number, total: Cost): string {
     `${iterations} iteration(s) — ` +
     `in ${total.inputTokens} / out ${total.outputTokens} / ` +
     `cache-write ${total.cacheCreationTokens} / cache-read ${total.cacheReadTokens} tokens, ` +
-    `$${total.costUsd.toFixed(4)} total`
+    `$${total.costUsd.toFixed(4)} total\n` +
+    cacheHealthLine(total)
   );
+}
+
+/**
+ * A plain-English verdict on whether the prompt cache is actually being reused
+ * across iterations — the load-bearing assumption behind loopdog's cost story.
+ *
+ * loopdog re-pays a large fixed harness overhead (Claude Code's system prompt,
+ * tool schemas, CLAUDE.md, skills) on *every* fresh-process slice. That stays
+ * affordable only because the harness serves most of it as cache-*read* (~0.1x
+ * input price) rather than cache-*write* (full price). This line surfaces the
+ * one number — cache-read as a share of all cached tokens — that says whether
+ * that discount is landing, so a silent regression (a missed TTL, a model
+ * switch, a harness change) shows up as words, not as a quietly larger bill.
+ */
+export function cacheHealthLine(total: Cost): string {
+  const cached = total.cacheReadTokens + total.cacheCreationTokens;
+  if (cached === 0) return "cache: no cached tokens seen (single short iteration?).";
+  const readShare = Math.round((total.cacheReadTokens / cached) * 100);
+  if (readShare >= 60) {
+    return `cache: healthy — ${readShare}% of cached tokens were reads (cheap). The cross-iteration prompt cache is working.`;
+  }
+  if (readShare >= 25) {
+    return `cache: partial — only ${readShare}% of cached tokens were reads. Some iterations are paying full cold-start price; check that slices finish within the ~5-min cache TTL.`;
+  }
+  return `cache: COLD — only ${readShare}% of cached tokens were reads. The prompt cache is barely being reused: the cacheable-prefix levers are inert and you're paying near-full harness overhead every slice. Only the model choice is saving tokens.`;
 }

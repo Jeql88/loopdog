@@ -2,6 +2,7 @@
 import { argv, exit } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { realpathSync } from "node:fs";
 import type { Env } from "./env.ts";
 import { realEnv } from "./env.ts";
 import { runInit, printInitSummary } from "./init.ts";
@@ -138,6 +139,20 @@ async function main(): Promise<void> {
 }
 
 // Run only when invoked as the binary, not when imported by tests.
-if (argv[1] && import.meta.url === pathToFileURL(argv[1]).href) {
+// Compare *resolved* paths, not the raw argv string: when installed via
+// `npm link` (or a global bin shim), argv[1] is a symlink whose href never
+// equals this module's real URL, which would otherwise make the CLI exit
+// silently. Resolving both through realpath makes the link case work.
+if (argv[1] && isEntrypoint(argv[1])) {
   void main();
+}
+
+/** True when argv[1] resolves to this module, following symlinks/shims. */
+function isEntrypoint(argv1: string): boolean {
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(argv1);
+  } catch {
+    // Fall back to the raw URL comparison if either path can't be resolved.
+    return import.meta.url === pathToFileURL(argv1).href;
+  }
 }
