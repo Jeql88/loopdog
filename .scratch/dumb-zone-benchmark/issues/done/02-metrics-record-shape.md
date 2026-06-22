@@ -1,6 +1,6 @@
 # 02 — Complete metrics record (all token categories + cache-read share)
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

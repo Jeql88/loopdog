@@ -1,6 +1,6 @@
 # 05 — Report table, recommendation, and crossover point
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

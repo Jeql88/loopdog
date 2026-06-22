@@ -1,6 +1,6 @@
 # 04 — Mechanical, pre-registered quality scoring
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 
