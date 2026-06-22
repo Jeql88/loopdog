@@ -68,11 +68,63 @@ test("falls back to defaults (with a warning) when loopdog.json is malformed", a
   assert.match(out.join("\n"), /not valid json/i);
 });
 
-test("the shipped templates/loopdog.json equals the loader's documented defaults", async () => {
-  // init writes this file; if it drifts from DEFAULT_CONFIG, a fresh repo's
-  // on-disk config would silently disagree with the loader's fallbacks.
+test("absent parallel block yields parallel defaults", async () => {
+  // A v1 loopdog.json has no parallel block — loadConfig fills in the defaults.
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/loopdog.json": JSON.stringify({
+        loop: { maxIterations: 5, permissionMode: "plan" },
+      }),
+    },
+  });
+
+  const config = await loadConfig(env);
+
+  assert.equal(config.parallel.maxAgents, 3);
+  assert.equal(config.parallel.trace, "review");
+});
+
+test("partial parallel block merges field-by-field over defaults", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/loopdog.json": JSON.stringify({
+        parallel: { trace: "hidden" },
+      }),
+    },
+  });
+
+  const config = await loadConfig(env);
+
+  assert.equal(config.parallel.trace, "hidden"); // from file
+  assert.equal(config.parallel.maxAgents, 3); // default
+});
+
+test("malformed loopdog.json falls back to defaults including parallel", async () => {
+  const out: string[] = [];
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    writeOut: (s) => out.push(s),
+    files: { "/repo/loopdog.json": "not json at all" },
+  });
+
+  const config = await loadConfig(env);
+
+  assert.equal(config.parallel.maxAgents, 3);
+  assert.equal(config.parallel.trace, "review");
+  assert.match(out.join("\n"), /not valid json/i);
+});
+
+test("the shipped templates/loopdog.json is v1 — no parallel block", async () => {
+  // init emits the v1 config; the parallel block is a v2-era addition that
+  // surfaces purely through loadConfig's per-section merge, not the template.
   const shipped = fileURLToPath(new URL("../templates/loopdog.json", import.meta.url));
   const parsed = JSON.parse(await readFile(shipped, "utf8"));
 
-  assert.deepEqual(parsed, DEFAULT_CONFIG);
+  // Template must not contain a parallel block.
+  assert.equal("parallel" in parsed, false);
+  // v1 fields still match their defaults.
+  assert.deepEqual(parsed.guardrails, DEFAULT_CONFIG.guardrails);
+  assert.deepEqual(parsed.loop, DEFAULT_CONFIG.loop);
 });

@@ -14,12 +14,19 @@ export interface LoopdogConfig {
     /** Passed to `claude --permission-mode`. */
     permissionMode: string;
   };
+  parallel: {
+    /** Concurrent worktrees/agents per wave. */
+    maxAgents: number;
+    /** "review" keeps branches for human merge; "hidden" exports patches and tears down. */
+    trace: "review" | "hidden";
+  };
 }
 
 /** Documented defaults — all guardrails ON, applied when config is absent. */
 export const DEFAULT_CONFIG: LoopdogConfig = {
   guardrails: { nextStepHints: true, contextHygiene: true },
   loop: { maxIterations: 50, permissionMode: "auto" },
+  parallel: { maxAgents: 3, trace: "review" },
 };
 
 /**
@@ -43,5 +50,6 @@ export async function loadConfig(env: Env): Promise<LoopdogConfig> {
   return {
     guardrails: { ...DEFAULT_CONFIG.guardrails, ...raw.guardrails },
     loop: { ...DEFAULT_CONFIG.loop, ...raw.loop },
+    parallel: { ...DEFAULT_CONFIG.parallel, ...raw.parallel },
   };
 }
