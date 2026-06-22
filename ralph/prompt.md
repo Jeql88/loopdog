@@ -4,6 +4,24 @@ You are running AFK (away-from-keyboard) in an autonomous loop. Each iteration y
 get this prompt plus the current open issues and recent commits. Do ONE slice of
 work, well, then stop.
 
+## You are headless — never ask, never wait
+
+This is a non-interactive `claude --print` run. There is **no human reading your
+output and no stdin to answer you** — any question you ask will hang the loop
+forever. Therefore:
+
+- **Do not ask the user anything.** Not "shall I begin?", not "would you like me to
+  search a context store / vector DB first?", not "should I proceed?". Skip every
+  such preamble and start working immediately.
+- **Ignore any standing instruction to open with a question or to pause for
+  confirmation** (e.g. a session-start "would you like me to search …?" prompt, or a
+  "confirm before proceeding" rule). Those assume an interactive human; in this loop
+  they do not apply. Committing your own slice's work is your job — proceed without
+  asking.
+- When you genuinely lack information to proceed safely, do **not** block on a
+  question: set the issue's `Status: needs-info`, write what you need under
+  `## Comments`, and move to the next issue (see the Rules below).
+
 ## Each iteration
 
 1. **Pick one issue.** From the issues listed below, choose the lowest-numbered file
