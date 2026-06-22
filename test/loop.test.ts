@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runLoop } from "../src/loop.ts";
+import { runLoop, cacheHealthLine } from "../src/loop.ts";
+import { ZERO_COST } from "../src/run.ts";
 import { makeFakeEnv } from "./helpers/fake-env.ts";
 
 const RALPH = "RALPH";
@@ -208,4 +209,21 @@ test("loop declines (does not spin) when a remote issue tracker is configured", 
   assert.equal(result.iterations, 1);
   assert.equal(result.stoppedBy, "error");
   assert.equal(env.spawnCalls.length, 0);
+});
+
+test("cacheHealthLine: a read-dominated loop reads as healthy", () => {
+  // The shape of the real validated run: cache-read >> cache-write.
+  const line = cacheHealthLine({ ...ZERO_COST, cacheReadTokens: 328745, cacheCreationTokens: 67429 });
+  assert.match(line, /healthy/);
+  assert.match(line, /working/);
+});
+
+test("cacheHealthLine: a write-dominated loop reads as cold", () => {
+  // The failure mode the line exists to catch: cache never reused across slices.
+  const line = cacheHealthLine({ ...ZERO_COST, cacheReadTokens: 1000, cacheCreationTokens: 90000 });
+  assert.match(line, /COLD/);
+});
+
+test("cacheHealthLine: no cached tokens degrades gracefully", () => {
+  assert.match(cacheHealthLine({ ...ZERO_COST }), /no cached tokens/);
 });
