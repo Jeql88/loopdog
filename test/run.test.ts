@@ -107,6 +107,73 @@ test("gathers ready issues (excluding done/) + git log + ralph prompt, spawns on
   assert.doesNotMatch(prompt, /ALREADY FINISHED WORK/);
 });
 
+test("captures usage + cost from the stream-json result event and reports it", async () => {
+  const out: string[] = [];
+  const resultEvent =
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      result: "Done.",
+      total_cost_usd: 0.0123,
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 340,
+        cache_creation_input_tokens: 19000,
+        cache_read_input_tokens: 5000,
+      },
+    }) + "\n";
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    writeOut: (s) => out.push(s),
+    spawnResults: [
+      { stdout: "claude 1.0" }, // version probe
+      { stdout: "" }, // git log
+      { stdout: resultEvent }, // agent run
+    ],
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  // Captured onto the result for the loop to accumulate.
+  assert.equal(result.cost.inputTokens, 1200);
+  assert.equal(result.cost.outputTokens, 340);
+  assert.equal(result.cost.cacheCreationTokens, 19000);
+  assert.equal(result.cost.cacheReadTokens, 5000);
+  assert.equal(result.cost.costUsd, 0.0123);
+
+  // A per-iteration cost line reaches the user, showing all four token
+  // categories and the dollar cost.
+  const text = out.join("\n");
+  assert.match(text, /1200|1,200/);
+  assert.match(text, /340/);
+  assert.match(text, /19000|19,000/);
+  assert.match(text, /5000|5,000/);
+  assert.match(text, /0\.0123|\$0\.01/);
+});
+
+test("a result event without usage/cost degrades to zeros, never throws", async () => {
+  const out: string[] = [];
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    writeOut: (s) => out.push(s),
+    spawnResults: [
+      { stdout: "claude 1.0" },
+      { stdout: "" },
+      // result event with no usage block and no total_cost_usd
+      { stdout: JSON.stringify({ type: "result", subtype: "success", result: "Done." }) + "\n" },
+    ],
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.cost.inputTokens, 0);
+  assert.equal(result.cost.outputTokens, 0);
+  assert.equal(result.cost.cacheCreationTokens, 0);
+  assert.equal(result.cost.cacheReadTokens, 0);
+  assert.equal(result.cost.costUsd, 0);
+});
+
 test("detects the NO READY ISSUES stop signal from agent output", async () => {
   const env = makeFakeEnv({
     cwd: "/repo",

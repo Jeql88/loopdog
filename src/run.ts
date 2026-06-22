@@ -10,6 +10,29 @@ export interface RunOptions {
   permissionMode: string;
 }
 
+/**
+ * Token usage and dollar cost for one iteration, lifted straight from the
+ * stream-json `result` event's `usage` block and `total_cost_usd`. All fields
+ * default to 0 when the agent didn't run or the event omitted them, so callers
+ * can sum across iterations without null-checks.
+ */
+export interface Cost {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+}
+
+/** A zero-valued cost — the safe default when no `result` usage was seen. */
+export const ZERO_COST: Cost = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
+  costUsd: 0,
+};
+
 export interface RunResult {
   /** False if the run could not proceed (e.g. `claude` not on PATH). */
   ok: boolean;
@@ -19,6 +42,8 @@ export interface RunResult {
   stopSignal: boolean;
   /** Everything the spawned agent wrote to stdout (empty if not spawned). */
   output: string;
+  /** Token usage + dollar cost for this iteration (zeros if not spawned). */
+  cost: Cost;
 }
 
 /**
@@ -33,7 +58,7 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
         "supports local-markdown issues only (under .scratch/*/issues/). The\n" +
         "interactive workflow skills still work; only the autonomous loop is gated.",
     );
-    return { ok: false, spawned: false, stopSignal: false, output: "" };
+    return { ok: false, spawned: false, stopSignal: false, output: "", cost: ZERO_COST };
   }
 
   if (!(await claudeOnPath(env))) {
@@ -41,7 +66,7 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
       "loopdog: the `claude` CLI was not found on your PATH.\n" +
         "Install Claude Code (https://docs.claude.com/en/docs/claude-code) and try again.",
     );
-    return { ok: false, spawned: false, stopSignal: false, output: "" };
+    return { ok: false, spawned: false, stopSignal: false, output: "", cost: ZERO_COST };
   }
 
   const issues = await gatherReadyIssues(env);
@@ -68,7 +93,53 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
   );
 
   const stopSignal = result.stdout.includes(STOP_SIGNAL);
-  return { ok: true, spawned: true, stopSignal, output: result.stdout };
+  const cost = parseCost(result.stdout);
+  env.writeOut(formatCostLine(cost));
+  return { ok: true, spawned: true, stopSignal, output: result.stdout, cost };
+}
+
+/**
+ * Pull this iteration's token usage and dollar cost from the captured
+ * stream-json stdout. The terminal `result` event carries a `usage` block and
+ * `total_cost_usd`; we scan the lines for it after the run rather than
+ * threading mutable state through the presentation-only renderer. Any missing
+ * field degrades to 0 so cost reporting never throws on an odd `result` shape.
+ */
+function parseCost(stdout: string): Cost {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!isRecord(event) || event.type !== "result") continue;
+    const usage = isRecord(event.usage) ? event.usage : {};
+    return {
+      inputTokens: numberOr0(usage.input_tokens),
+      outputTokens: numberOr0(usage.output_tokens),
+      cacheCreationTokens: numberOr0(usage.cache_creation_input_tokens),
+      cacheReadTokens: numberOr0(usage.cache_read_input_tokens),
+      costUsd: numberOr0(event.total_cost_usd),
+    };
+  }
+  return { ...ZERO_COST };
+}
+
+/** A non-negative finite number, or 0 for anything else (missing/NaN/string). */
+function numberOr0(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+/** One-line per-iteration cost report: token categories + dollar cost. */
+export function formatCostLine(cost: Cost): string {
+  return (
+    `cost: in ${cost.inputTokens} / out ${cost.outputTokens} / ` +
+    `cache-write ${cost.cacheCreationTokens} / cache-read ${cost.cacheReadTokens} tokens, ` +
+    `$${cost.costUsd.toFixed(4)}`
+  );
 }
 
 /**
