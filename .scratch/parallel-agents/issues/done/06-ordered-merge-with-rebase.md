@@ -1,6 +1,6 @@
 # 06 — Ordered batch merge with pre-merge rebase (`review` mode)
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

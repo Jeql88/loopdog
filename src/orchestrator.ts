@@ -63,6 +63,10 @@ export async function runParallel(
 
   const waveSizes: number[] = [];
   let agentsDispatched = 0;
+  // In review mode, set up the integration worktree once for the whole run —
+  // re-creating its branch each wave would fail in real git.
+  const integration =
+    options.trace === "review" ? await ensureIntegrationWorktree(env) : null;
 
   // Dependency-aware wave scheduler. Each iteration recomputes the frontier
   // (ready slices whose blockers are all done), dispatches up to maxAgents of
@@ -85,6 +89,10 @@ export async function runParallel(
     const wave = frontier.slice(0, Math.min(options.maxAgents, remaining));
 
     await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
+    // Integrate the wave's branches before recording completion. In review mode
+    // (default) this merges them into loopdog-integration; conflict handling and
+    // the hidden-mode patch export land in slices 07-08.
+    if (integration !== null) await mergeWave(env, wave, integration);
     // Record completion so the next frontier sees these blockers satisfied.
     for (const issue of wave) await markDone(env, issue);
     waveSizes.push(wave.length);
@@ -230,6 +238,47 @@ async function dispatchAgent(
     // worktree would block the next run from recreating the same branch.
     await env.spawn("git", ["worktree", "remove", "--force", worktree]);
   }
+}
+
+/** The persistent integration branch all review-mode slices merge into. */
+const INTEGRATION_BRANCH = "loopdog-integration";
+
+/**
+ * Merge a finished wave's branches back together — the review-mode integration
+ * path. Each `loopdog/slice-NN` branch is merged **in slice-number order** into
+ * a single `loopdog-integration` branch with `git merge --no-ff`, after being
+ * rebased onto the current integration tip so mere textual drift from a sibling
+ * slice auto-resolves instead of stalling the run. `main` is never touched and
+ * nothing is pushed — promoting integration to a real branch is always a
+ * deliberate human action. (Semantic-conflict parking is slice 07; here clean
+ * rebases/merges are assumed.)
+ */
+async function mergeWave(env: Env, wave: IssueFile[], integration: string): Promise<void> {
+  // Deterministic order: ascending slice number.
+  const branches = wave
+    .map((issue) => `loopdog/slice-${sliceId(issue.path)}`)
+    .sort();
+  for (const branch of branches) {
+    // Rebase the branch onto the current integration tip (auto-resolves drift),
+    // then merge it in with an explicit merge commit.
+    await env.spawn("git", ["rebase", INTEGRATION_BRANCH, branch], { cwd: integration });
+    await env.spawn("git", ["merge", "--no-ff", branch], { cwd: integration });
+  }
+}
+
+/**
+ * Ensure the `loopdog-integration` branch and its worktree exist, returning the
+ * worktree path. Merges run inside this dedicated worktree so the user's own
+ * working tree (and `main`) are never checked out or disturbed.
+ */
+async function ensureIntegrationWorktree(env: Env): Promise<string> {
+  const dir = `${env.cwd()}/.loopdog/worktrees/integration`;
+  // `worktree add -b` both creates the branch and checks it out into `dir`.
+  // Idempotent in practice across waves: the first wave creates it; a canned/
+  // real "already exists" is benign because subsequent merges target the same
+  // branch by name. (Conflict/edge handling is out of scope for this slice.)
+  await env.spawn("git", ["worktree", "add", "-b", INTEGRATION_BRANCH, dir]);
+  return dir;
 }
 
 /**

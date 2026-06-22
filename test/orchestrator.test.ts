@@ -132,9 +132,14 @@ test("each agent runs in its own worktree on a loopdog/slice-NN branch", async (
     trace: "review",
   });
 
-  // A worktree is added on a loopdog/slice-NN branch for each slice.
+  // A worktree is added on a loopdog/slice-NN branch for each slice (the
+  // integration worktree, added by the merge step, is a separate branch).
   const adds = env.spawnCalls.filter(
-    (c) => c.cmd === "git" && c.args.includes("worktree") && c.args.includes("add"),
+    (c) =>
+      c.cmd === "git" &&
+      c.args.includes("worktree") &&
+      c.args.includes("add") &&
+      c.args.some((a) => a.startsWith("loopdog/slice-")),
   );
   assert.equal(adds.length, 2);
   const branches = adds.flatMap((c) => c.args.filter((a) => a.startsWith("loopdog/slice-")));
@@ -264,6 +269,97 @@ test("total agent spawns never exceed maxIterations", async () => {
   const agents = env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print"));
   assert.ok(agents.length <= 4, `spawned ${agents.length}, cap 4`);
   assert.equal(result.stoppedBy, "max-iterations");
+});
+
+test("merges clean branches into loopdog-integration in slice-number order", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nB",
+      "/repo/.scratch/feat/issues/03-c.md": "> Status: ready-for-agent\nC",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }], // repo check; rest clean
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // --no-ff merges into the integration branch, in slice-number order.
+  const merges = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && c.args.includes("merge") && c.args.includes("--no-ff"),
+  );
+  const mergedBranches = merges.map(
+    (c) => c.args.find((a) => a.startsWith("loopdog/slice-")) ?? "",
+  );
+  assert.deepEqual(mergedBranches, [
+    "loopdog/slice-01",
+    "loopdog/slice-02",
+    "loopdog/slice-03",
+  ]);
+});
+
+test("rebases each branch onto the integration tip before merging it", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nB",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 2,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // For each branch, a rebase onto loopdog-integration precedes its --no-ff merge.
+  const gitOps = env.spawnCalls.filter((c) => c.cmd === "git");
+  const rebase01 = gitOps.findIndex(
+    (c) => c.args.includes("rebase") && c.args.includes("loopdog/slice-01"),
+  );
+  const merge01 = gitOps.findIndex(
+    (c) => c.args.includes("merge") && c.args.includes("loopdog/slice-01"),
+  );
+  assert.ok(rebase01 >= 0, "slice-01 was rebased");
+  assert.ok(merge01 > rebase01, "rebase precedes merge for slice-01");
+});
+
+test("review mode never touches main or pushes", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // No git command ever names main or pushes.
+  for (const c of env.spawnCalls.filter((x) => x.cmd === "git")) {
+    assert.ok(!c.args.includes("push"), `no push: ${c.args.join(" ")}`);
+    assert.ok(!c.args.includes("main"), `never main: ${c.args.join(" ")}`);
+    assert.ok(!c.args.includes("master"), `never master: ${c.args.join(" ")}`);
+  }
 });
 
 test("passes the model through to every agent in the wave", async () => {
