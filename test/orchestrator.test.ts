@@ -13,10 +13,14 @@ const READY = {
   "/repo/.scratch/feat/issues/04-d.md": "> Status: ready-for-agent\nslice D body",
 };
 
-test("runs one wave of up to maxAgents concurrent claude --print agents", async () => {
-  const env = makeFakeEnv({ cwd: "/repo", files: { ...READY } });
+test("dispatches concurrent claude --print agents, capped at maxAgents per wave", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: { ...READY }, // 4 independent ready slices
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
 
-  await runParallel(env, {
+  const result = await runParallel(env, {
     ralphPrompt: RALPH,
     permissionMode: "auto",
     model: "sonnet",
@@ -25,9 +29,10 @@ test("runs one wave of up to maxAgents concurrent claude --print agents", async 
     trace: "review",
   });
 
-  // The skeleton runs exactly one wave: up to maxAgents agents, no more.
+  // All four independent slices drain, no wave exceeding the cap (4 → 3 + 1).
   const agents = env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print"));
-  assert.equal(agents.length, 3, "dispatched maxAgents agents in the wave");
+  assert.equal(agents.length, 4);
+  assert.ok(result.waveSizes.every((s) => s <= 3), `waves: ${result.waveSizes}`);
 });
 
 test("never dispatches more agents than ready slices", async () => {
@@ -53,7 +58,11 @@ test("never dispatches more agents than ready slices", async () => {
 });
 
 test("each agent is a fresh solo run — its prompt names no sibling agent", async () => {
-  const env = makeFakeEnv({ cwd: "/repo", files: { ...READY } });
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: { ...READY },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
 
   await runParallel(env, {
     ralphPrompt: RALPH,
@@ -65,7 +74,7 @@ test("each agent is a fresh solo run — its prompt names no sibling agent", asy
   });
 
   const agents = env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print"));
-  assert.equal(agents.length, 2);
+  assert.equal(agents.length, 4); // all four independent slices drain
   for (const a of agents) {
     const prompt = a.stdin ?? "";
     // The agent is solo: its prompt carries the ralph body + exactly one slice,
@@ -73,9 +82,9 @@ test("each agent is a fresh solo run — its prompt names no sibling agent", asy
     assert.match(prompt, /RALPH PROMPT BODY/);
     assert.doesNotMatch(prompt, /other agent|sibling|parallel agent|wave/i);
   }
-  // Each agent got a distinct slice (no two agents handed the same body).
+  // Every agent got a distinct slice (no two agents handed the same body).
   const bodies = agents.map((a) => a.stdin ?? "");
-  assert.notEqual(bodies[0], bodies[1], "agents work distinct slices");
+  assert.equal(new Set(bodies).size, bodies.length, "agents work distinct slices");
 });
 
 test("fails early with a clear message when the target is not a git repo", async () => {
@@ -142,6 +151,119 @@ test("each agent runs in its own worktree on a loopdog/slice-NN branch", async (
     (c) => c.cmd === "git" && c.args.includes("worktree") && c.args.includes("remove"),
   );
   assert.equal(removes.length, 2);
+});
+
+test("dispatches only slices whose Blocked by are all done; unblocks across waves", async () => {
+  // 02 is blocked by 01. Wave 1 can only run 01; once 01 is done, wave 2 runs 02.
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-base.md": "> Status: ready-for-agent\n\n## What\nbase",
+      "/repo/.scratch/feat/issues/02-dependent.md":
+        "> Status: ready-for-agent\n\n## Blocked by\n\n- `.scratch/feat/issues/01-base.md`\n",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }], // repo check; rest default code 0
+  });
+
+  const result = await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // Two waves: 01 alone, then 02 once its blocker is done.
+  assert.deepEqual(result.waveSizes, [1, 1]);
+  assert.equal(result.stoppedBy, "empty-frontier");
+
+  // The dependent slice's branch was created only in the second wave — never
+  // dispatched while its blocker was still pending.
+  const adds = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && c.args.includes("worktree") && c.args.includes("add"),
+  );
+  const order = adds.flatMap((c) => c.args.filter((a) => a.startsWith("loopdog/slice-")));
+  assert.deepEqual(order, ["loopdog/slice-01", "loopdog/slice-02"]);
+});
+
+test("never runs more than maxAgents agents in a single wave", async () => {
+  const files: Record<string, string> = {};
+  for (let n = 1; n <= 5; n++) {
+    const id = String(n).padStart(2, "0");
+    files[`/repo/.scratch/feat/issues/${id}-x.md`] = "> Status: ready-for-agent\nindependent";
+  }
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files,
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  const result = await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 2,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // 5 independent slices, cap 2 → waves of 2,2,1. No wave exceeds the cap.
+  assert.ok(result.waveSizes.every((s) => s <= 2), `waves: ${result.waveSizes}`);
+  assert.equal(result.agentsDispatched, 5);
+  assert.equal(result.stoppedBy, "empty-frontier");
+});
+
+test("stops when the frontier is empty (orchestrator's decision)", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      // Only a blocked slice — its blocker does not exist as done, so the
+      // frontier is empty from the start.
+      "/repo/.scratch/feat/issues/02-dependent.md":
+        "> Status: ready-for-agent\n\n## Blocked by\n\n- `.scratch/feat/issues/01-missing.md`\n",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  const result = await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  assert.equal(result.agentsDispatched, 0);
+  assert.equal(result.stoppedBy, "empty-frontier");
+  assert.ok(!env.spawnCalls.some((c) => c.cmd === "claude"));
+});
+
+test("total agent spawns never exceed maxIterations", async () => {
+  const files: Record<string, string> = {};
+  for (let n = 1; n <= 10; n++) {
+    const id = String(n).padStart(2, "0");
+    files[`/repo/.scratch/feat/issues/${id}-x.md`] = "> Status: ready-for-agent\nindependent";
+  }
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files,
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  const result = await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 4, // cap below the 10-slice backlog
+    trace: "review",
+  });
+
+  const agents = env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print"));
+  assert.ok(agents.length <= 4, `spawned ${agents.length}, cap 4`);
+  assert.equal(result.stoppedBy, "max-iterations");
 });
 
 test("passes the model through to every agent in the wave", async () => {

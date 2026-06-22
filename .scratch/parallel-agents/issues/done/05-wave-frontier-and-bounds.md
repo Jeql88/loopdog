@@ -1,6 +1,6 @@
 # 05 — Dependency-aware wave frontier + concurrency cap + stop decision
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

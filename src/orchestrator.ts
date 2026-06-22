@@ -26,6 +26,10 @@ export interface ParallelResult {
   agentsDispatched: number;
   /** How many waves ran. */
   waves: number;
+  /** The number of agents in each wave, in order — for asserting the cap. */
+  waveSizes: number[];
+  /** Why the run ended. */
+  stoppedBy: "empty-frontier" | "max-iterations" | "not-a-git-repo";
 }
 
 /**
@@ -54,17 +58,125 @@ export async function runParallel(
         "agent in its own git worktree). Run it inside a git repo, or use serial\n" +
         "`loop` which works in any directory.",
     );
-    return { agentsDispatched: 0, waves: 0 };
+    return { agentsDispatched: 0, waves: 0, waveSizes: [], stoppedBy: "not-a-git-repo" };
   }
 
-  const ready = await readyIssues(env);
-  // A wave is bounded by both the concurrency cap and how many slices are
-  // actually ready — never dispatch an agent with nothing to do.
-  const wave = ready.slice(0, options.maxAgents);
-  if (wave.length === 0) return { agentsDispatched: 0, waves: 0 };
+  const waveSizes: number[] = [];
+  let agentsDispatched = 0;
 
-  await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
-  return { agentsDispatched: wave.length, waves: 1 };
+  // Dependency-aware wave scheduler. Each iteration recomputes the frontier
+  // (ready slices whose blockers are all done), dispatches up to maxAgents of
+  // them, marks them done, and repeats — so a slice becomes eligible the moment
+  // its blockers complete. The orchestrator owns the stop decision: the run
+  // ends when the frontier is empty, regardless of any per-agent signal.
+  while (true) {
+    const frontier = await computeFrontier(env);
+    if (frontier.length === 0) {
+      return { agentsDispatched, waves: waveSizes.length, waveSizes, stoppedBy: "empty-frontier" };
+    }
+
+    // maxIterations bounds TOTAL spawns across the whole run (not per-agent), so
+    // a misbehaving run cannot spawn unbounded agents. Trim the wave to whatever
+    // budget remains; if none remains, stop.
+    const remaining = options.maxIterations - agentsDispatched;
+    if (remaining <= 0) {
+      return { agentsDispatched, waves: waveSizes.length, waveSizes, stoppedBy: "max-iterations" };
+    }
+    const wave = frontier.slice(0, Math.min(options.maxAgents, remaining));
+
+    await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
+    // Record completion so the next frontier sees these blockers satisfied.
+    for (const issue of wave) await markDone(env, issue);
+    waveSizes.push(wave.length);
+    agentsDispatched += wave.length;
+
+    if (agentsDispatched >= options.maxIterations) {
+      return { agentsDispatched, waves: waveSizes.length, waveSizes, stoppedBy: "max-iterations" };
+    }
+  }
+}
+
+/**
+ * The wave frontier: every `ready-for-agent` slice whose `Blocked by`
+ * references are all `done`. A blocker counts as satisfied only when an issue
+ * with that slice number is actually `done` (in an `issues/done/` archive, or
+ * a file whose `Status:` reads `done`). A blocker that is still pending — or
+ * that does not exist at all — leaves the slice blocked until a later wave.
+ * Returned in slice-number order, capped by the caller.
+ */
+async function computeFrontier(env: Env): Promise<IssueFile[]> {
+  const ready = await readyIssues(env);
+  const done = await doneSliceIds(env);
+  return ready.filter((issue) => {
+    const blockers = parseBlockedBy(issue.body);
+    return blockers.every((b) => done.has(b));
+  });
+}
+
+/**
+ * Slice numbers of every `done` issue — those archived under `issues/done/`
+ * plus any whose `Status:` line still reads `done` in place. These are the
+ * blockers the frontier treats as satisfied.
+ */
+async function doneSliceIds(env: Env): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const root = `${env.cwd()}/.scratch`;
+  await (async function walk(dir: string): Promise<void> {
+    let entries: string[];
+    try {
+      entries = await env.readdir(dir);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/ENOTDIR|ENOENT/.test(message)) return;
+      throw err;
+    }
+    for (const name of entries) {
+      const child = `${dir}/${name}`;
+      if (name.endsWith(".md")) {
+        // Archived under done/, or status-done in place — either counts.
+        const isArchived = /\/done\/[^/]+\.md$/.test(child);
+        const body = await env.readFile(child);
+        if (isArchived || /^[> ]*Status:\s*done/m.test(body)) {
+          ids.add(sliceId(child));
+        }
+      } else {
+        await walk(child);
+      }
+    }
+  })(root);
+  return ids;
+}
+
+/**
+ * The slice numbers a `## Blocked by` section references. Blockers are written
+ * as paths like `.scratch/feat/issues/01-base.md`; we key on the slice number
+ * so a blocker is matched regardless of feature directory. A slice with no
+ * `Blocked by` section has no blockers.
+ */
+function parseBlockedBy(body: string): string[] {
+  const section = body.match(/##\s*Blocked by\s*\n([\s\S]*?)(?:\n##\s|$)/i);
+  if (!section) return [];
+  const ids: string[] = [];
+  for (const line of section[1].split("\n")) {
+    // Match an issue filename reference and pull its leading slice number.
+    const m = line.match(/(\d+)-[^/`\s]+\.md/);
+    if (m) ids.push(m[1]);
+  }
+  return ids;
+}
+
+/**
+ * Mark a dispatched slice `done` and stop it appearing in future frontiers.
+ * In a real run the agent flips its own status and slice 06's merge integrates
+ * it; here the orchestrator records completion directly so the next wave's
+ * dependency frontier is correct through the Env seam.
+ */
+async function markDone(env: Env, issue: IssueFile): Promise<void> {
+  const updated = issue.body.replace(
+    /^([> ]*)Status:\s*ready-for-agent/m,
+    "$1Status: done",
+  );
+  await env.writeFile(issue.path, updated);
 }
 
 /** True if `cwd` is inside a git work tree, via `git rev-parse` through the port. */
