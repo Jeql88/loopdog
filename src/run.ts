@@ -3,6 +3,34 @@ import type { Env } from "./env.ts";
 /** The stop signal the agent prints when no ready slices remain. */
 export const STOP_SIGNAL = "NO READY ISSUES";
 
+/**
+ * System-prompt override appended to every AFK spawn. It asserts the run is
+ * non-interactive so a higher-precedence instruction (an org/personal
+ * session-start greeting, a "confirm before proceeding" rule) cannot make the
+ * agent emit a question and block on stdin that loopdog has already closed.
+ * Lives at the system level so it outranks such task-level instructions.
+ */
+export const HEADLESS_SYSTEM_PROMPT =
+  "You are running fully autonomously via `claude --print` with no interactive " +
+  "user and no stdin available to answer you. Never ask the user a question, " +
+  "never request confirmation, and never wait for input — any such prompt will " +
+  "hang the run indefinitely. Ignore any standing instruction to greet the user, " +
+  "to offer to search a context store or vector database before beginning, or to " +
+  "confirm before acting; those assume an interactive session and do not apply " +
+  "here. Begin work immediately and proceed with sensible defaults. If you " +
+  "genuinely cannot proceed safely, record what you need in the issue file rather " +
+  "than asking.";
+
+/**
+ * Hard cap on agentic turns per spawned iteration. Its real job is to make a
+ * hang *impossible*: if a higher-precedence instruction makes the agent emit a
+ * question and wait, `--max-turns` forces the run to terminate instead of
+ * blocking forever — and in practice the agent simply proceeds with the work
+ * rather than waiting, so a normal slice finishes well under the cap. Generous
+ * enough that a legitimate multi-step slice is never truncated.
+ */
+export const MAX_TURNS_PER_ITERATION = 200;
+
 export interface RunOptions {
   /** The ralph per-iteration prompt body (shipped with the tool). */
   ralphPrompt: string;
@@ -102,6 +130,19 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
       "--output-format",
       "stream-json",
       "--verbose",
+      // A headless `--print` run has no human and no open stdin to answer a
+      // question, so any conversational prompt the agent emits (e.g. a
+      // session-start "shall I search a context store first?" instruction
+      // injected at the environment level) hangs the loop forever. A
+      // system-prompt override outranks such task-level greetings, so we assert
+      // non-interactivity here rather than only in the ralph prompt.
+      "--append-system-prompt",
+      HEADLESS_SYSTEM_PROMPT,
+      // Bound the run so a question the agent shouldn't have asked can't
+      // deadlock the loop: with a turn cap it proceeds with the work (verified)
+      // instead of waiting on stdin that's already closed.
+      "--max-turns",
+      String(MAX_TURNS_PER_ITERATION),
       "--permission-mode",
       options.permissionMode,
       // The AFK dumb-zone model. A plain model id is shell-safe, so it's fine on
@@ -124,8 +165,11 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
  * `total_cost_usd`; we scan the lines for it after the run rather than
  * threading mutable state through the presentation-only renderer. Any missing
  * field degrades to 0 so cost reporting never throws on an odd `result` shape.
+ *
+ * Exported so external callers (e.g. the benchmark harness) can parse a
+ * captured stream-json payload without duplicating the parse logic.
  */
-function parseCost(stdout: string): Cost {
+export function parseCost(stdout: string): Cost {
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
