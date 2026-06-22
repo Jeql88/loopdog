@@ -420,6 +420,68 @@ function args2(args: string[]) {
   return { hasMergeAbort: args.includes("merge") && args.includes("--abort") };
 }
 
+test("hidden mode: out-of-tree worktrees, patch export, full teardown, apply hints", async () => {
+  const out: string[] = [];
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    writeOut: (s) => out.push(s),
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nB",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 2,
+    maxIterations: 50,
+    trace: "hidden",
+  });
+
+  // Worktrees live OUTSIDE the repo tree — no loopdog working folder inside /repo.
+  const sliceAdds = env.spawnCalls.filter(
+    (c) =>
+      c.cmd === "git" &&
+      c.args.includes("worktree") &&
+      c.args.includes("add") &&
+      c.args.some((a) => a.startsWith("loopdog/slice-")),
+  );
+  assert.equal(sliceAdds.length, 2);
+  for (const add of sliceAdds) {
+    const dir = add.args[add.args.length - 1];
+    assert.ok(!dir.startsWith("/repo/"), `worktree out of tree: ${dir}`);
+  }
+
+  // Finished slices exported as patches into the gitignored .loopdog/patches/.
+  const exports = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && (c.args.includes("format-patch") || c.args.includes("diff")),
+  );
+  assert.equal(exports.length, 2, "one patch export per slice");
+  assert.ok(
+    Object.keys(env.files).some((p) => p.includes("/.loopdog/patches/")),
+    "a patch file was written under .loopdog/patches/",
+  );
+
+  // Teardown: every loopdog/slice branch is deleted — no refs survive.
+  const branchDeletes = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && c.args.includes("branch") && c.args.some((a) => a === "-D"),
+  );
+  const deleted = branchDeletes.flatMap((c) => c.args.filter((a) => a.startsWith("loopdog/slice-")));
+  assert.deepEqual(deleted.sort(), ["loopdog/slice-01", "loopdog/slice-02"]);
+
+  // No integration branch is created in hidden mode (zero git footprint).
+  assert.ok(
+    !env.spawnCalls.some((c) => c.args.includes("loopdog-integration")),
+    "hidden mode never builds an integration branch",
+  );
+
+  // loopdog prints git apply lines so the human can land the work by hand.
+  assert.match(out.join("\n"), /git apply .*\.loopdog\/patches\//);
+});
+
 test("passes the model through to every agent in the wave", async () => {
   const env = makeFakeEnv({ cwd: "/repo", files: { ...READY } });
 

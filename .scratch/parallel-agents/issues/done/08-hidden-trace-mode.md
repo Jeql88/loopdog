@@ -1,6 +1,6 @@
 # 08 — `hidden` trace mode: out-of-tree worktrees, patch export, teardown
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

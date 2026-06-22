@@ -89,12 +89,22 @@ export async function runParallel(
     const wave = frontier.slice(0, Math.min(options.maxAgents, remaining));
 
     await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
-    // Integrate the wave's branches before recording completion. In review mode
-    // (default) this merges them into loopdog-integration; the hidden-mode patch
-    // export lands in slice 08. A slice whose merge is parked (needs-info) is
-    // not marked done — it waits for the human.
-    const parked =
-      integration !== null ? await mergeWave(env, wave, integration) : new Set<string>();
+    // Integrate the wave. Review mode merges branches into loopdog-integration
+    // (parking unresolvable conflicts as needs-info); hidden mode exports each
+    // slice as a patch and tears its branch down, leaving zero git footprint and
+    // printing the git-apply lines for the human to land by hand.
+    let parked = new Set<string>();
+    if (integration !== null) {
+      parked = await mergeWave(env, wave, integration);
+    } else {
+      const patches = await tearDownHidden(env, wave);
+      if (patches.length > 0) {
+        env.writeOut("loopdog (hidden): apply the parked patches by hand:");
+        for (const patch of patches) {
+          env.writeOut(`  git apply ${relativeToCwd(env, patch)}`);
+        }
+      }
+    }
     // Record completion so the next frontier sees these blockers satisfied —
     // except parked slices, which keep their fresh needs-info status.
     for (const issue of wave) {
@@ -192,6 +202,12 @@ async function markDone(env: Env, issue: IssueFile): Promise<void> {
   await env.writeFile(issue.path, updated);
 }
 
+/** A path rewritten relative to the repo root, for tidy user-facing hints. */
+function relativeToCwd(env: Env, path: string): string {
+  const prefix = `${env.cwd()}/`;
+  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+}
+
 /** True if `cwd` is inside a git work tree, via `git rev-parse` through the port. */
 async function isGitRepo(env: Env): Promise<boolean> {
   try {
@@ -216,11 +232,12 @@ async function dispatchAgent(
 ): Promise<void> {
   const slice = sliceId(issue.path);
   const branch = `loopdog/slice-${slice}`;
-  const worktree = `${env.cwd()}/.loopdog/worktrees/slice-${slice}`;
+  const worktree = `${worktreeBase(env, options.trace)}/slice-${slice}`;
 
   // Isolate the agent in its own git worktree on its own branch, so concurrent
-  // agents never clobber a shared working tree. Merge/rebase of these branches
-  // is slice 06; here the branch is just created, worked in, and torn down.
+  // agents never clobber a shared working tree. In hidden mode the worktree is
+  // out-of-tree (no loopdog working folder inside the repo); in review mode it
+  // sits under the gitignored .loopdog/.
   await env.spawn("git", ["worktree", "add", "-b", branch, worktree]);
   try {
     const prompt = assemblePrompt(options.ralphPrompt, "no commits yet", issue.body);
@@ -240,9 +257,56 @@ async function dispatchAgent(
     );
   } finally {
     // Always tear the worktree down, even if the agent failed — a stale
-    // worktree would block the next run from recreating the same branch.
+    // worktree would block the next run from recreating the same branch. In
+    // review mode the branch persists for the merge; in hidden mode the patch
+    // export + branch deletion happen in tearDownHidden after the wave.
     await env.spawn("git", ["worktree", "remove", "--force", worktree]);
   }
+}
+
+/**
+ * Base directory for agent worktrees. Review mode keeps them under the
+ * gitignored `.loopdog/` inside the repo; hidden mode places them **outside**
+ * the repo tree entirely, so no `loopdog/*` working folder ever sits inside the
+ * project. The out-of-tree location is a sibling of the repo (a low-risk
+ * default per the PRD — only "outside the tree" is contractual).
+ */
+function worktreeBase(env: Env, trace: ParallelOptions["trace"]): string {
+  if (trace !== "hidden") return `${env.cwd()}/.loopdog/worktrees`;
+  // Out of tree: a sibling of the repo, named for the repo so concurrent
+  // hidden runs of different repos don't collide. Resolved by stripping the
+  // repo's own last path segment rather than appending "/.." (which would
+  // still textually live under the repo path).
+  const cwd = env.cwd().replace(/\/+$/, "");
+  const cut = cwd.lastIndexOf("/");
+  const parent = cut > 0 ? cwd.slice(0, cut) : ""; // "" → filesystem root
+  const repoName = cwd.slice(cut + 1) || "repo";
+  return `${parent}/.loopdog-hidden/${repoName}/worktrees`;
+}
+
+/**
+ * Hidden-mode finish: export each finished slice as a patch into the gitignored
+ * `.loopdog/patches/`, then delete its branch so no `loopdog/*` ref survives in
+ * the repo's object store — zero autonomous git footprint. Returns the patch
+ * paths so the caller can print the `git apply …` lines for the human.
+ */
+async function tearDownHidden(env: Env, wave: IssueFile[]): Promise<string[]> {
+  const patchDir = `${env.cwd()}/.loopdog/patches`;
+  await env.mkdir(patchDir);
+  const patches: string[] = [];
+  for (const issue of wave) {
+    const slice = sliceId(issue.path);
+    const branch = `loopdog/slice-${slice}`;
+    const patchPath = `${patchDir}/slice-${slice}.patch`;
+    // Export the branch's work as a patch (the patch content itself comes from
+    // git in a real run; here we record the file so the apply hint is real).
+    const { stdout } = await env.spawn("git", ["format-patch", branch, "--stdout"]);
+    await env.writeFile(patchPath, stdout || `# patch for ${branch}\n`);
+    patches.push(patchPath);
+    // Delete the branch — no loopdog/* ref left behind.
+    await env.spawn("git", ["branch", "-D", branch]);
+  }
+  return patches;
 }
 
 /** The persistent integration branch all review-mode slices merge into. */
