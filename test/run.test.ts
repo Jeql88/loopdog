@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runRun, makeStreamRenderer } from "../src/run.ts";
+import {
+  runRun,
+  makeStreamRenderer,
+  HEADLESS_SYSTEM_PROMPT,
+  MAX_TURNS_PER_ITERATION,
+} from "../src/run.ts";
 import { makeFakeEnv } from "./helpers/fake-env.ts";
 
 const RALPH = "RALPH PROMPT BODY";
@@ -92,11 +97,17 @@ test("gathers ready issues (excluding done/) + git log + ralph prompt, spawns on
   );
   assert.equal(agentCalls.length, 1);
   // Streams incrementally (stream-json) so a long run isn't silent until exit.
+  // A headless system-prompt override is appended so an environment-level
+  // greeting/confirmation instruction can't make the agent block on stdin.
   assert.deepEqual(agentCalls[0].args, [
     "--print",
     "--output-format",
     "stream-json",
     "--verbose",
+    "--append-system-prompt",
+    HEADLESS_SYSTEM_PROMPT,
+    "--max-turns",
+    String(MAX_TURNS_PER_ITERATION),
     "--permission-mode",
     "auto",
     "--model",
