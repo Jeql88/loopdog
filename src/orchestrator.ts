@@ -90,11 +90,16 @@ export async function runParallel(
 
     await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
     // Integrate the wave's branches before recording completion. In review mode
-    // (default) this merges them into loopdog-integration; conflict handling and
-    // the hidden-mode patch export land in slices 07-08.
-    if (integration !== null) await mergeWave(env, wave, integration);
-    // Record completion so the next frontier sees these blockers satisfied.
-    for (const issue of wave) await markDone(env, issue);
+    // (default) this merges them into loopdog-integration; the hidden-mode patch
+    // export lands in slice 08. A slice whose merge is parked (needs-info) is
+    // not marked done — it waits for the human.
+    const parked =
+      integration !== null ? await mergeWave(env, wave, integration) : new Set<string>();
+    // Record completion so the next frontier sees these blockers satisfied —
+    // except parked slices, which keep their fresh needs-info status.
+    for (const issue of wave) {
+      if (!parked.has(issue.path)) await markDone(env, issue);
+    }
     waveSizes.push(wave.length);
     agentsDispatched += wave.length;
 
@@ -253,17 +258,69 @@ const INTEGRATION_BRANCH = "loopdog-integration";
  * deliberate human action. (Semantic-conflict parking is slice 07; here clean
  * rebases/merges are assumed.)
  */
-async function mergeWave(env: Env, wave: IssueFile[], integration: string): Promise<void> {
+async function mergeWave(
+  env: Env,
+  wave: IssueFile[],
+  integration: string,
+): Promise<Set<string>> {
+  // Slices whose merge had to be parked — the caller must not then mark them
+  // done over their fresh needs-info status.
+  const parked = new Set<string>();
   // Deterministic order: ascending slice number.
-  const branches = wave
-    .map((issue) => `loopdog/slice-${sliceId(issue.path)}`)
-    .sort();
-  for (const branch of branches) {
-    // Rebase the branch onto the current integration tip (auto-resolves drift),
-    // then merge it in with an explicit merge commit.
-    await env.spawn("git", ["rebase", INTEGRATION_BRANCH, branch], { cwd: integration });
-    await env.spawn("git", ["merge", "--no-ff", branch], { cwd: integration });
+  const ordered = [...wave].sort((a, b) => sliceId(a.path).localeCompare(sliceId(b.path)));
+  for (const issue of ordered) {
+    const branch = `loopdog/slice-${sliceId(issue.path)}`;
+    // Rebase the branch onto the current integration tip (auto-resolves mere
+    // textual drift), then merge it in with an explicit merge commit. Either
+    // step can hit a true semantic conflict the rebase can't resolve.
+    const rebase = await env.spawn("git", ["rebase", INTEGRATION_BRANCH, branch], {
+      cwd: integration,
+    });
+    if (rebase.code !== 0) {
+      await env.spawn("git", ["rebase", "--abort"], { cwd: integration });
+      await parkConflict(env, issue, rebase.stdout + rebase.stderr);
+      parked.add(issue.path);
+      continue; // one hard slice must not stall the rest of the batch
+    }
+    const merge = await env.spawn("git", ["merge", "--no-ff", branch], { cwd: integration });
+    if (merge.code !== 0) {
+      await env.spawn("git", ["merge", "--abort"], { cwd: integration });
+      await parkConflict(env, issue, merge.stdout + merge.stderr);
+      parked.add(issue.path);
+    }
   }
+  return parked;
+}
+
+/**
+ * Park a slice whose merge couldn't auto-resolve: flip its `Status:` to the
+ * existing `needs-info` triage state (no new vocabulary) and record the
+ * conflicting paths in its body, so the human resolves the ambiguous merge
+ * instead of loopdog guessing. The branch is left intact for them to inspect.
+ */
+async function parkConflict(env: Env, issue: IssueFile, gitOutput: string): Promise<void> {
+  const paths = conflictingPaths(gitOutput);
+  const note =
+    `\n\n## Comments\n\n` +
+    `Parked by \`loop --parallel\`: this slice's branch could not be merged into ` +
+    `\`${INTEGRATION_BRANCH}\` automatically (semantic conflict). Resolve by hand, then ` +
+    `re-mark \`ready-for-agent\`.\n\n` +
+    (paths.length
+      ? `Conflicting paths:\n${paths.map((p) => `- \`${p}\``).join("\n")}\n`
+      : `(no conflicting paths reported)\n`);
+  const updated =
+    issue.body.replace(/^([> ]*)Status:\s*ready-for-agent/m, "$1Status: needs-info") + note;
+  await env.writeFile(issue.path, updated);
+}
+
+/** Pull conflicting file paths out of git's "CONFLICT ... in <path>" lines. */
+function conflictingPaths(gitOutput: string): string[] {
+  const paths: string[] = [];
+  for (const line of gitOutput.split("\n")) {
+    const m = line.match(/CONFLICT[^\n]*?in\s+(.+?)\s*$/i);
+    if (m) paths.push(m[1]);
+  }
+  return paths;
 }
 
 /**

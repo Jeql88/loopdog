@@ -362,6 +362,64 @@ test("review mode never touches main or pushes", async () => {
   }
 });
 
+test("parks a single conflicting slice as needs-info without blocking the rest", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\n\n## What\nB",
+      "/repo/.scratch/feat/issues/03-c.md": "> Status: ready-for-agent\nC",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+    // Only slice-02's merge conflicts; everything else (repo check, worktrees,
+    // rebases, the other merges) stays clean.
+    onSpawn: (cmd, args) => {
+      if (
+        cmd === "git" &&
+        args.includes("merge") &&
+        args.includes("loopdog/slice-02")
+      ) {
+        return { code: 1, stdout: "CONFLICT (content): Merge conflict in src/x.ts\n" };
+      }
+      return undefined;
+    },
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // The conflicting merge was aborted.
+  const aborts = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && args2(c.args).hasMergeAbort,
+  );
+  assert.equal(aborts.length, 1, "exactly one merge aborted");
+
+  // Slice 02 is parked as needs-info, with the conflicting path recorded.
+  const parked = env.files["/repo/.scratch/feat/issues/02-b.md"];
+  assert.match(parked, /Status:\s*needs-info/);
+  assert.match(parked, /src\/x\.ts/);
+  // No new triage vocabulary — the reused needs-info, not a bespoke label.
+  assert.doesNotMatch(parked, /conflict-parked|merge-conflict-state/i);
+
+  // The clean siblings still merged (slice 01 and 03 reached --no-ff merge).
+  const cleanMerges = env.spawnCalls
+    .filter((c) => c.cmd === "git" && c.args.includes("merge") && c.args.includes("--no-ff"))
+    .map((c) => c.args.find((a) => a.startsWith("loopdog/slice-")));
+  assert.ok(cleanMerges.includes("loopdog/slice-01"));
+  assert.ok(cleanMerges.includes("loopdog/slice-03"));
+});
+
+/** Tiny arg helper so the merge-abort check reads clearly. */
+function args2(args: string[]) {
+  return { hasMergeAbort: args.includes("merge") && args.includes("--abort") };
+}
+
 test("passes the model through to every agent in the wave", async () => {
   const env = makeFakeEnv({ cwd: "/repo", files: { ...READY } });
 

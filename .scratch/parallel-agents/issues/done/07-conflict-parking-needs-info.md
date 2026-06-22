@@ -1,6 +1,6 @@
 # 07 — Semantic-conflict parking as `needs-info` (non-blocking)
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

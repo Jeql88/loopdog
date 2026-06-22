@@ -29,6 +29,14 @@ export interface FakeEnvOptions {
    * as real `spawn` does when the binary is not on PATH. Defaults to true.
    */
   claudeOnPath?: boolean;
+  /**
+   * Optional per-call result selector, consulted before the `spawnResults`
+   * queue. Return a (partial) result to answer a specific `(cmd, args)` — e.g.
+   * to make one particular `git merge` conflict while siblings stay clean —
+   * or `undefined` to fall through to the queue. Keeps ordering-sensitive
+   * tests from having to count every interleaved spawn.
+   */
+  onSpawn?: (cmd: string, args: string[]) => Partial<SpawnResult> | undefined;
 }
 
 export interface FakeEnv extends Env {
@@ -60,6 +68,7 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
   const cwd = options.cwd ?? "/repo";
   const writeOut = options.writeOut ?? (() => {});
   const write = options.write ?? (() => {});
+  const options_onSpawn = options.onSpawn;
 
   // Register parent directories so readdir/exists behave for seeded files.
   for (const path of files.keys()) {
@@ -108,7 +117,8 @@ export function makeFakeEnv(options: FakeEnvOptions = {}): FakeEnv {
       if (cmd === "claude" && !claudeOnPath) {
         throw new Error(`spawn claude ENOENT`);
       }
-      const next = spawnQueue.shift();
+      const matched = options_onSpawn?.(cmd, args);
+      const next = matched ?? spawnQueue.shift();
       const result = { ...DEFAULT_SPAWN, ...next };
       // Exercise the streaming path: real spawn forwards each output chunk to
       // onData as it arrives, so the fake forwards the canned output once.
