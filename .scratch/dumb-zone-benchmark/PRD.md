@@ -198,3 +198,31 @@ throwaway repo, numbers lifted from `result` events. This PRD generalises that f
 - **Scoring-bias caveat:** token metrics are objective; quality scoring is performed by
   the same family of model that wrote the code, so the quality verdict is reported with
   that caveat and the mechanical criteria are auditable by the author.
+
+## RESULT — live run, 2026-06-23
+
+Ran live (real `claude`, the fixed 3-slice backlog sum/words/clamp), all three paths on
+their own fresh copy of the identical backlog. Objective token cost:
+
+| Path | Total $ | cache-read share |
+|---|---|---|
+| one-session-self-loop | **$0.3122** (cheapest) | 96% |
+| plain-session | $0.3160 | 95% |
+| loopdog-afk | **$0.6222** (~2×) | 91% |
+
+**loopdog-afk cost ~2× the single-context paths** for identical work, because it re-pays
+the ~200K-token harness prefix on every slice (3 cold starts) while the single-context
+paths pay it once and ride cache-read. The crossover hypothesis is **confirmed**: loopdog
+loses on tokens for small backlogs; it only wins past the depth where a session's growing
+transcript exceeds its repeated-harness cost — not reached at 3 slices.
+
+**Quality was UNSCORED** (the harness reports "unscored" rather than fabricate a verdict).
+A 3-slice independent backlog cannot expose the cross-slice-judgment quality gap, so this
+is a *token* verdict only.
+
+**Decision (taken on this data):** the project's headline value is the **smart zone**
+(grill → to-prd → to-issues) plus guiding the user through Claude Code — not the AFK
+fresh-process executor. The **one-session self-loop** is the preferred dumb-zone executor:
+cheapest here *and* it preserves cross-slice judgment (stays alive), where loopdog-afk's
+fresh context is blind to earlier slices. Lean away from `loopdog run` AFK as the primary
+execution story.

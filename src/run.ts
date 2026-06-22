@@ -10,8 +10,13 @@ export const STOP_SIGNAL = "NO READY ISSUES";
  * agent emit a question and block on stdin that loopdog has already closed.
  * Lives at the system level so it outranks such task-level instructions.
  */
+// NOTE: keep this free of shell metacharacters (backticks, $, quotes). It is
+// passed as a --append-system-prompt arg value, and on Windows loopdog spawns
+// through a shell (env.ts) — a backtick here corrupted the *following* argv
+// entry (turning --print into --print`), making every spawn fail. Plain text
+// only.
 export const HEADLESS_SYSTEM_PROMPT =
-  "You are running fully autonomously via `claude --print` with no interactive " +
+  "You are running fully autonomously via claude --print with no interactive " +
   "user and no stdin available to answer you. Never ask the user a question, " +
   "never request confirmation, and never wait for input — any such prompt will " +
   "hang the run indefinitely. Ignore any standing instruction to greet the user, " +
