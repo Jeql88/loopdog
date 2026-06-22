@@ -223,22 +223,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** A discovered issue file: its path and full markdown body. */
+export interface IssueFile {
+  path: string;
+  body: string;
+}
+
+/**
+ * Every `ready-for-agent` slice under `.scratch/<*>/issues/`, sorted by path
+ * (so "lowest-numbered first" is just array order) and excluding the `done/`
+ * archive. The serial loop takes the first; the parallel orchestrator takes up
+ * to N. Skip-ambiguous is preserved by status: a slice flipped to `needs-info`
+ * is no longer `ready-for-agent`, so it drops out of this set.
+ */
+export async function readyIssues(env: Env): Promise<IssueFile[]> {
+  const root = `${env.cwd()}/.scratch`;
+  const ready: IssueFile[] = [];
+  for (const path of await findIssueFiles(env, root)) {
+    const body = await env.readFile(path);
+    if (/^[> ]*Status:\s*ready-for-agent/m.test(body)) ready.push({ path, body });
+  }
+  return ready;
+}
+
 /**
  * The single next slice to work: the body of the lowest-numbered
- * `ready-for-agent` issue under `.scratch/<*>/issues/`, or `null` when none is
- * ready. Issue files are discovered sorted (so "lowest-numbered" is just the
- * first match) and the `done/` archive is skipped — finished work never
- * re-enters the agent's context to taint the next iteration. Skip-ambiguous is
- * preserved by status: a slice flipped to `needs-info` is no longer
- * `ready-for-agent`, so the next selection passes over it to the following one.
+ * `ready-for-agent` issue, or `null` when none is ready. The `done/` archive is
+ * skipped — finished work never re-enters the agent's context to taint the next
+ * iteration.
  */
 async function selectNextIssue(env: Env): Promise<string | null> {
-  const root = `${env.cwd()}/.scratch`;
-  for (const file of await findIssueFiles(env, root)) {
-    const body = await env.readFile(file);
-    if (/^[> ]*Status:\s*ready-for-agent/m.test(body)) return body;
-  }
-  return null;
+  const [first] = await readyIssues(env);
+  return first?.body ?? null;
 }
 
 /** Paths of every `*.md` under any `issues/` directory, skipping `done/`. */
@@ -294,7 +310,7 @@ async function recentCommits(env: Env): Promise<string> {
  * cache-read rates on the shared prefix instead of re-creating the cache each
  * time.
  */
-function assemblePrompt(ralph: string, commits: string, issue: string): string {
+export function assemblePrompt(ralph: string, commits: string, issue: string): string {
   return [
     ralph,
     "## The issue to implement",

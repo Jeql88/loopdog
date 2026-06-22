@@ -1,6 +1,6 @@
 # 03 — Orchestrator skeleton: `loop --parallel N` runs a one-slice wave
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

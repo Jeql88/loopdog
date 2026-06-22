@@ -7,6 +7,7 @@ import { realEnv } from "./env.ts";
 import { runInit, printInitSummary } from "./init.ts";
 import { runRun } from "./run.ts";
 import { runLoop } from "./loop.ts";
+import { runParallel } from "./orchestrator.ts";
 import { loadConfig } from "./config.ts";
 
 const USAGE = `loopdog — drop an AI-engineering workflow into a repo and run it.
@@ -64,11 +65,32 @@ export async function run(
     case "loop": {
       const config = await loadConfig(env);
       const ralphPrompt = await env.readFile(defaultRalphPromptPath());
+      const model = flagValue(argv, "--model") ?? config.loop.model;
+
+      // `--parallel N` routes into the orchestrator; without it, serial loop is
+      // completely unchanged (same engine, stop signal, exit codes).
+      const parallelN = flagValue(argv, "--parallel");
+      if (parallelN !== undefined) {
+        const maxAgents = Number.parseInt(parallelN, 10) || config.parallel.maxAgents;
+        const result = await runParallel(env, {
+          ralphPrompt,
+          permissionMode: config.loop.permissionMode,
+          model,
+          maxAgents,
+          maxIterations: config.loop.maxIterations,
+          trace: config.parallel.trace,
+        });
+        env.writeOut(
+          `loopdog loop --parallel: ${result.agentsDispatched} agent(s) across ${result.waves} wave(s).`,
+        );
+        return 0;
+      }
+
       const result = await runLoop(env, {
         ralphPrompt,
         permissionMode: config.loop.permissionMode,
         maxIterations: config.loop.maxIterations,
-        model: flagValue(argv, "--model") ?? config.loop.model,
+        model,
       });
       env.writeOut(
         `loopdog loop: ran ${result.iterations} iteration(s), stopped by ${result.stoppedBy}.`,
