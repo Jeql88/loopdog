@@ -8,7 +8,7 @@ intent; everything after it executes that intent.
 | 1 | Grill | `/grill-me` | human | Relentless interview that walks every branch of the design tree until decisions are resolved. Clear context if not needed before starting. |
 | 2 | Write PRD | `/to-prd` | human | Synthesises the grilling conversation into a PRD at `.scratch/<feature>/PRD.md`. No new interview — just synthesis. **This is the destination.** |
 | 3 | Slice into issues | `/to-issues` | human | Breaks the PRD into independently-grabbable **vertical slices** (tracer bullets) under `.scratch/<feature>/issues/`. Each slice is demoable end-to-end. |
-| 4 | Implement (TDD) | `/implement` + `/tdd` | AFK (ralph) | Implements ready slices test-first at pre-agreed seams. Run via `afk.sh` for unattended runs. |
+| 4 | Implement (TDD) | `/implement` + `/tdd` | AFK (ralph) **or** one session | Implements ready slices test-first at pre-agreed seams. Run unattended via `afk.sh` (best for **deep** backlogs), or hand the sliced issues to a single Claude session (cheaper on small backlogs — see the README cost note). |
 | 5 | Code review | `/review` | human | Two-axis review (Standards + Spec) of the diff since a fixed point. |
 | 6 | Deepen modules | `/improve-codebase-architecture` | human | Finds opportunities to deepen modules and improve the architecture. |
 

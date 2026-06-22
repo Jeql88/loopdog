@@ -3,7 +3,7 @@
 An AI-engineering loop you run mostly by hand, with one autonomous stage:
 
 ```
-grill → PRD → slice into issues → AFK implement → review → deepen
+grill → PRD → slice into issues → implement → review → deepen
 ```
 
 | # | Stage | Command | Mode | What happens |
@@ -11,7 +11,7 @@ grill → PRD → slice into issues → AFK implement → review → deepen
 | 1 | Grill | `/grill-me` | human | Relentless interview that walks every branch of the design tree until decisions are resolved. |
 | 2 | Write PRD | `/to-prd` | human | Synthesises the grilling into a PRD at `.scratch/<feature>/PRD.md`. **This is the destination.** |
 | 3 | Slice into issues | `/to-issues` | human | Breaks the PRD into independently-grabbable **vertical slices** (tracer bullets). |
-| 4 | Implement (TDD) | `loopdog run` / `loop` | AFK | Implements ready slices test-first at pre-agreed seams. Each iteration is a fresh agent. |
+| 4 | Implement (TDD) | `loopdog run` / `loop` **or** one session | AFK | Implements ready slices test-first at pre-agreed seams. `loopdog loop` spawns a fresh agent per slice — best for **deep** backlogs; for a small backlog, handing the sliced issues to a single Claude session is cheaper (loopdog's flat per-slice harness cost only wins past a crossover). |
 | 5 | Code review | `/review` | human | Two-axis review (Standards + Spec) of the diff since a fixed point. |
 | 6 | Deepen modules | `/improve-codebase-architecture` | human | Finds opportunities to deepen modules and improve the architecture. |
 
