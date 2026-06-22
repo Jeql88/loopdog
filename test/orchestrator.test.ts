@@ -78,6 +78,72 @@ test("each agent is a fresh solo run — its prompt names no sibling agent", asy
   assert.notEqual(bodies[0], bodies[1], "agents work distinct slices");
 });
 
+test("fails early with a clear message when the target is not a git repo", async () => {
+  const out: string[] = [];
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    writeOut: (s) => out.push(s),
+    files: { ...READY },
+    // git rev-parse exits non-zero → not a work tree.
+    spawnResults: [{ code: 128, stderr: "fatal: not a git repository" }],
+  });
+
+  const result = await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 3,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // No agent ran — the git-repo guard short-circuits before dispatch.
+  assert.equal(result.agentsDispatched, 0);
+  assert.ok(!env.spawnCalls.some((c) => c.cmd === "claude"));
+  assert.match(out.join("\n"), /git repos/i);
+});
+
+test("each agent runs in its own worktree on a loopdog/slice-NN branch", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nB",
+    },
+    // git rev-parse (repo check) succeeds; everything else returns clean.
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 2,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // A worktree is added on a loopdog/slice-NN branch for each slice.
+  const adds = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && c.args.includes("worktree") && c.args.includes("add"),
+  );
+  assert.equal(adds.length, 2);
+  const branches = adds.flatMap((c) => c.args.filter((a) => a.startsWith("loopdog/slice-")));
+  assert.deepEqual(branches.sort(), ["loopdog/slice-01", "loopdog/slice-02"]);
+
+  // Each agent's cwd is its own worktree dir, distinct per agent.
+  const agents = env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print"));
+  const cwds = agents.map((a) => a.cwd);
+  assert.ok(cwds.every((c) => typeof c === "string" && c.includes("slice-")));
+  assert.equal(new Set(cwds).size, 2, "each agent has a distinct worktree cwd");
+
+  // Worktrees are torn down afterward.
+  const removes = env.spawnCalls.filter(
+    (c) => c.cmd === "git" && c.args.includes("worktree") && c.args.includes("remove"),
+  );
+  assert.equal(removes.length, 2);
+});
+
 test("passes the model through to every agent in the wave", async () => {
   const env = makeFakeEnv({ cwd: "/repo", files: { ...READY } });
 

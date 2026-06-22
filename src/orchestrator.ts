@@ -45,6 +45,18 @@ export async function runParallel(
   env: Env,
   options: ParallelOptions,
 ): Promise<ParallelResult> {
+  // Parallel mode hard-requires a git repository — worktree isolation depends
+  // on it. Fail early and clearly, before spawning any agent. (Serial `loop`
+  // keeps working in any directory; this requirement is parallel-only.)
+  if (!(await isGitRepo(env))) {
+    env.writeOut(
+      "loopdog: `loop --parallel` requires a git repository (it isolates each\n" +
+        "agent in its own git worktree). Run it inside a git repo, or use serial\n" +
+        "`loop` which works in any directory.",
+    );
+    return { agentsDispatched: 0, waves: 0 };
+  }
+
   const ready = await readyIssues(env);
   // A wave is bounded by both the concurrency cap and how many slices are
   // actually ready — never dispatch an agent with nothing to do.
@@ -53,6 +65,16 @@ export async function runParallel(
 
   await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
   return { agentsDispatched: wave.length, waves: 1 };
+}
+
+/** True if `cwd` is inside a git work tree, via `git rev-parse` through the port. */
+async function isGitRepo(env: Env): Promise<boolean> {
+  try {
+    const { code } = await env.spawn("git", ["rev-parse", "--is-inside-work-tree"]);
+    return code === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -67,21 +89,44 @@ async function dispatchAgent(
   issue: IssueFile,
   options: ParallelOptions,
 ): Promise<void> {
-  // No commit context in the skeleton wave (worktree/branch choreography lands
-  // in slice 04); the solo prompt is ralph + the one slice.
-  const prompt = assemblePrompt(options.ralphPrompt, "no commits yet", issue.body);
-  await env.spawn(
-    "claude",
-    [
-      "--print",
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--permission-mode",
-      options.permissionMode,
-      "--model",
-      options.model,
-    ],
-    { stdin: prompt },
-  );
+  const slice = sliceId(issue.path);
+  const branch = `loopdog/slice-${slice}`;
+  const worktree = `${env.cwd()}/.loopdog/worktrees/slice-${slice}`;
+
+  // Isolate the agent in its own git worktree on its own branch, so concurrent
+  // agents never clobber a shared working tree. Merge/rebase of these branches
+  // is slice 06; here the branch is just created, worked in, and torn down.
+  await env.spawn("git", ["worktree", "add", "-b", branch, worktree]);
+  try {
+    const prompt = assemblePrompt(options.ralphPrompt, "no commits yet", issue.body);
+    await env.spawn(
+      "claude",
+      [
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        options.permissionMode,
+        "--model",
+        options.model,
+      ],
+      { stdin: prompt, cwd: worktree },
+    );
+  } finally {
+    // Always tear the worktree down, even if the agent failed — a stale
+    // worktree would block the next run from recreating the same branch.
+    await env.spawn("git", ["worktree", "remove", "--force", worktree]);
+  }
+}
+
+/**
+ * The two-digit slice number from an issue filename (e.g. `01-a.md` → "01"),
+ * used to name the agent's branch and worktree deterministically. Falls back to
+ * the bare filename stem if no leading number is present.
+ */
+function sliceId(issuePath: string): string {
+  const file = issuePath.split("/").pop() ?? issuePath;
+  const match = file.match(/^(\d+)/);
+  return match ? match[1] : file.replace(/\.md$/, "");
 }

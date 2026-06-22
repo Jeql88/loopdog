@@ -1,6 +1,6 @@
 # 04 — Worktree-per-agent isolation + git-repo hard requirement
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 
