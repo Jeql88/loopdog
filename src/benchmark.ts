@@ -31,7 +31,6 @@ import {
   parseCost,
   ZERO_COST,
   HEADLESS_SYSTEM_PROMPT,
-  MAX_TURNS_PER_ITERATION,
   type Cost,
 } from "./run.ts";
 
@@ -314,6 +313,13 @@ export async function runBenchmarkLoopDogAFK(
 // ---------------------------------------------------------------------------
 
 /**
+ * Turn budget for a single-context path (plain-session / self-loop). Larger
+ * than loopdog's per-slice cap because one invocation works the whole backlog;
+ * sized so a small fixed backlog always completes without truncating its cost.
+ */
+export const SINGLE_CONTEXT_MAX_TURNS = 400;
+
+/**
  * Both the plain-session and self-loop paths work the whole backlog in a SINGLE
  * persistent `claude` invocation (one growing context), so unlike loopdog-afk
  * they produce one `result` event for the entire run rather than one per slice.
@@ -341,8 +347,13 @@ async function runSingleSpawnPath(
       "--verbose",
       "--append-system-prompt",
       HEADLESS_SYSTEM_PROMPT,
+      // A single-context path works the WHOLE backlog in one invocation, so it
+      // needs a higher turn budget than one loopdog slice — otherwise it could
+      // hit the cap mid-backlog and understate its cost. Generous enough that a
+      // small backlog always finishes; still bounded so a stray question can't
+      // hang the run.
       "--max-turns",
-      String(MAX_TURNS_PER_ITERATION),
+      String(SINGLE_CONTEXT_MAX_TURNS),
       "--permission-mode",
       options.permissionMode,
       "--model",
@@ -645,23 +656,27 @@ async function main(): Promise<void> {
   const pkgRoot = join(dirname(__filename), "..");
   const ralphPrompt = await realEnv().readFile(join(pkgRoot, "ralph", "prompt.md"));
 
-  // Change into the work dir so all spawns (git, claude) run there.
-  process.chdir(workDir);
-  const env = realEnv();
+  // Each path runs on its OWN fresh copy of the identical backlog, in its own
+  // subdirectory, so they are measured apples-to-apples and never see each
+  // other's commits. We chdir into each before running it (realEnv reads
+  // process.cwd()), set the repo up fresh, then run exactly that path.
+  async function runPath(
+    name: string,
+    runner: (env: Env, o: BenchmarkRunOptions) => Promise<PathMetrics>,
+  ): Promise<PathMetrics> {
+    const dir = join(workDir!, name);
+    await realEnv().mkdir(dir);
+    process.chdir(dir);
+    const env = realEnv();
+    env.writeOut(`benchmark: [${name}] fresh repo in ${dir}`);
+    await setupBenchmarkRepo(env);
+    env.writeOut(`benchmark: [${name}] running…`);
+    return runner(env, { ralphPrompt, permissionMode: "auto" });
+  }
 
-  env.writeOut(`benchmark: setting up throwaway repo in ${workDir}`);
-  await setupBenchmarkRepo(env);
-
-  // Each path runs on its own fresh copy of the identical backlog so they are
-  // measured apples-to-apples and don't see each other's commits.
-  env.writeOut("benchmark: running loopdog-afk path…");
-  const afk = await runBenchmarkLoopDogAFK(env, { ralphPrompt, permissionMode: "auto" });
-
-  env.writeOut("benchmark: running plain-session path…");
-  const plain = await runBenchmarkPlainSession(env, { ralphPrompt, permissionMode: "auto" });
-
-  env.writeOut("benchmark: running one-session-self-loop path…");
-  const self = await runBenchmarkSelfLoop(env, { ralphPrompt, permissionMode: "auto" });
+  const afk = await runPath("loopdog-afk", runBenchmarkLoopDogAFK);
+  const plain = await runPath("plain-session", runBenchmarkPlainSession);
+  const self = await runPath("one-session-self-loop", runBenchmarkSelfLoop);
 
   // Quality scoring is a pre-registered, diff-auditable pass. The live scorer is
   // future work (it needs the per-path diffs); here every slice is scored
@@ -679,7 +694,10 @@ async function main(): Promise<void> {
     ),
   }));
 
-  env.writeOut(formatReport(buildReport(results)));
+  // chdir back to the work root for the final report (each path left us in its
+  // own subdir). realEnv().writeOut goes to stdout regardless of cwd.
+  process.chdir(workDir);
+  realEnv().writeOut(formatReport(buildReport(results)));
 }
 
 // Run only when invoked as the binary entry point (not when imported by tests).

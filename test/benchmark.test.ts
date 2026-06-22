@@ -15,6 +15,7 @@ import {
   buildReport,
   formatReport,
   REPORT_CAVEATS,
+  SINGLE_CONTEXT_MAX_TURNS,
   type PathMetrics,
   type PathQuality,
   type QualityCheckKey,
@@ -489,6 +490,10 @@ test("single-spawn paths spawn claude with the headless guards", async () => {
   assert.ok(call, "no claude --print spawn");
   assert.ok(call!.args.includes("--max-turns"), "missing --max-turns guard");
   assert.ok(call!.args.includes("--append-system-prompt"), "missing --append-system-prompt guard");
+  // A single-context path uses the higher whole-backlog turn budget, not the
+  // per-slice cap, so its cost isn't truncated mid-backlog.
+  const i = call!.args.indexOf("--max-turns");
+  assert.equal(call!.args[i + 1], String(SINGLE_CONTEXT_MAX_TURNS));
 });
 
 test("single-spawn path records stoppedBy=error on non-zero exit", async () => {

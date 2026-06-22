@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# benchmark.sh — run the dumb-zone benchmark on the loopdog-afk path.
+# benchmark.sh — run the dumb-zone benchmark across all three paths.
 #
-# Creates a fresh throwaway repo in a temp directory, plants the fixed backlog
-# (FIXED_BACKLOG from src/benchmark.ts), then drives the loopdog AFK path
-# through one full run and prints the metrics record.
+# For each path (loopdog-afk, plain-session, one-session-self-loop) it creates
+# its OWN fresh copy of the identical fixed backlog (FIXED_BACKLOG from
+# src/benchmark.ts) in a subdirectory, runs that path end-to-end, then prints
+# the combined report: per-path token metrics, the quality record, the
+# token/quality winners, the crossover note, and the honesty caveats.
+#
+# NOTE: this spawns REAL `claude` processes (3 paths × the backlog) and costs
+# real tokens. Run it in your own terminal, not headless.
 #
 # Re-runnable: each invocation gets a clean temp dir so results are not
 # contaminated by a prior run's partial state. Pass an explicit directory to
