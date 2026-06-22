@@ -1,6 +1,6 @@
 # 02 — Deterministic one-issue selection
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

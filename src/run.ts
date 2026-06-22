@@ -69,9 +69,17 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
     return { ok: false, spawned: false, stopSignal: false, output: "", cost: ZERO_COST };
   }
 
-  const issues = await gatherReadyIssues(env);
+  // loopdog selects the single next slice itself rather than handing the agent
+  // every ready issue and letting it choose — a smaller, deterministic prompt,
+  // and no turn wasted rediscovering already-done work. When nothing is ready,
+  // loopdog emits the stop signal itself without spawning the agent at all.
+  const issue = await selectNextIssue(env);
+  if (issue === null) {
+    env.writeOut(STOP_SIGNAL);
+    return { ok: true, spawned: false, stopSignal: true, output: "", cost: ZERO_COST };
+  }
   const commits = await recentCommits(env);
-  const prompt = assemblePrompt(options.ralphPrompt, commits, issues);
+  const prompt = assemblePrompt(options.ralphPrompt, commits, issue);
 
   // `claude --print` alone buffers its whole reply and emits it only on exit,
   // so a long run looks silent until it finishes. `--output-format stream-json
@@ -204,19 +212,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Concatenated contents of every `ready-for-agent` issue under
- * `.scratch/<*>/issues/`, excluding the `done/` archive. Excluding `done/` is
- * the context-hygiene mechanism: finished work never re-enters the agent's
- * context to taint the next iteration.
+ * The single next slice to work: the body of the lowest-numbered
+ * `ready-for-agent` issue under `.scratch/<*>/issues/`, or `null` when none is
+ * ready. Issue files are discovered sorted (so "lowest-numbered" is just the
+ * first match) and the `done/` archive is skipped — finished work never
+ * re-enters the agent's context to taint the next iteration. Skip-ambiguous is
+ * preserved by status: a slice flipped to `needs-info` is no longer
+ * `ready-for-agent`, so the next selection passes over it to the following one.
  */
-async function gatherReadyIssues(env: Env): Promise<string> {
+async function selectNextIssue(env: Env): Promise<string | null> {
   const root = `${env.cwd()}/.scratch`;
-  const bodies: string[] = [];
   for (const file of await findIssueFiles(env, root)) {
     const body = await env.readFile(file);
-    if (/^[> ]*Status:\s*ready-for-agent/m.test(body)) bodies.push(body);
+    if (/^[> ]*Status:\s*ready-for-agent/m.test(body)) return body;
   }
-  return bodies.join("\n\n---\n\n");
+  return null;
 }
 
 /** Paths of every `*.md` under any `issues/` directory, skipping `done/`. */
@@ -258,14 +268,14 @@ async function recentCommits(env: Env): Promise<string> {
   }
 }
 
-/** Assemble the agent prompt: ralph instructions + commits + open issues. */
-function assemblePrompt(ralph: string, commits: string, issues: string): string {
+/** Assemble the agent prompt: ralph instructions + commits + the selected issue. */
+function assemblePrompt(ralph: string, commits: string, issue: string): string {
   return [
     ralph,
     "## Recent commits",
     commits,
-    "## Open issues",
-    issues,
+    "## The issue to implement",
+    issue,
   ].join("\n\n");
 }
 

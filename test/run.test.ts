@@ -5,6 +5,9 @@ import { makeFakeEnv } from "./helpers/fake-env.ts";
 
 const RALPH = "RALPH PROMPT BODY";
 
+/** A single ready issue, so deterministic selection has something to spawn for. */
+const READY_ISSUE = { "/repo/.scratch/feat/issues/01-ready.md": "> Status: ready-for-agent\nDo the ready thing." };
+
 test("declines AFK run when a remote (GitHub) issue tracker is configured", async () => {
   const out: string[] = [];
   const env = makeFakeEnv({
@@ -35,6 +38,7 @@ test("local-markdown tracker proceeds even when its prose mentions GitHub", asyn
     files: {
       "/repo/docs/agents/issue-tracker.md":
         "# Issue tracker: Local Markdown\n\nNo GitHub issues are created — everything stays local.",
+      ...READY_ISSUE,
     },
     spawnResults: [{ stdout: "claude 1.0" }, { stdout: "" }, { stdout: "did work" }],
   });
@@ -107,6 +111,78 @@ test("gathers ready issues (excluding done/) + git log + ralph prompt, spawns on
   assert.doesNotMatch(prompt, /ALREADY FINISHED WORK/);
 });
 
+test("selects the lowest-numbered ready issue and sends only that one", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-first.md": "> Status: ready-for-agent\nFIRST READY SLICE.",
+      "/repo/.scratch/feat/issues/02-second.md": "> Status: ready-for-agent\nSECOND READY SLICE.",
+      "/repo/.scratch/feat/issues/03-third.md": "> Status: ready-for-agent\nTHIRD READY SLICE.",
+    },
+    spawnResults: [
+      { stdout: "claude 1.0" }, // version probe
+      { stdout: "" }, // git log
+      { stdout: "did it" }, // agent run
+    ],
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  assert.equal(result.spawned, true);
+  const prompt =
+    env.spawnCalls.find((c) => c.cmd === "claude" && c.args.includes("--print"))?.stdin ?? "";
+  // Only the lowest-numbered ready issue is handed to the agent.
+  assert.match(prompt, /FIRST READY SLICE/);
+  assert.doesNotMatch(prompt, /SECOND READY SLICE/);
+  assert.doesNotMatch(prompt, /THIRD READY SLICE/);
+});
+
+test("never selects a non-ready issue; picks the next ready one instead", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      // Lowest-numbered, but blocked — must be skipped.
+      "/repo/.scratch/feat/issues/01-blocked.md": "> Status: needs-info\nBLOCKED SLICE.",
+      "/repo/.scratch/feat/issues/02-triage.md": "> Status: needs-triage\nUNTRIAGED SLICE.",
+      "/repo/.scratch/feat/issues/03-ready.md": "> Status: ready-for-agent\nTHE READY SLICE.",
+      "/repo/.scratch/feat/issues/done/00-done.md": "> Status: done\nARCHIVED SLICE.",
+    },
+    spawnResults: [{ stdout: "claude 1.0" }, { stdout: "" }, { stdout: "did it" }],
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  const prompt =
+    env.spawnCalls.find((c) => c.cmd === "claude" && c.args.includes("--print"))?.stdin ?? "";
+  assert.equal(result.spawned, true);
+  assert.match(prompt, /THE READY SLICE/);
+  assert.doesNotMatch(prompt, /BLOCKED SLICE/);
+  assert.doesNotMatch(prompt, /UNTRIAGED SLICE/);
+  assert.doesNotMatch(prompt, /ARCHIVED SLICE/);
+});
+
+test("with no ready issue, emits the stop signal without spawning the agent", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-blocked.md": "> Status: needs-info\nblocked",
+      "/repo/.scratch/feat/issues/done/00-done.md": "> Status: done\ndone",
+    },
+    spawnResults: [{ stdout: "claude 1.0" }], // only the version probe should run
+  });
+
+  const result = await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.stopSignal, true);
+  // No agent was spawned — loopdog decided the backlog was empty itself.
+  assert.equal(result.spawned, false);
+  assert.equal(
+    env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print")).length,
+    0,
+  );
+});
+
 test("captures usage + cost from the stream-json result event and reports it", async () => {
   const out: string[] = [];
   const resultEvent =
@@ -125,6 +201,7 @@ test("captures usage + cost from the stream-json result event and reports it", a
   const env = makeFakeEnv({
     cwd: "/repo",
     writeOut: (s) => out.push(s),
+    files: { ...READY_ISSUE },
     spawnResults: [
       { stdout: "claude 1.0" }, // version probe
       { stdout: "" }, // git log
@@ -156,6 +233,7 @@ test("a result event without usage/cost degrades to zeros, never throws", async 
   const env = makeFakeEnv({
     cwd: "/repo",
     writeOut: (s) => out.push(s),
+    files: { ...READY_ISSUE },
     spawnResults: [
       { stdout: "claude 1.0" },
       { stdout: "" },
@@ -175,8 +253,12 @@ test("a result event without usage/cost degrades to zeros, never throws", async 
 });
 
 test("detects the NO READY ISSUES stop signal from agent output", async () => {
+  // A ready issue exists, so the agent is spawned; the agent itself then reports
+  // the stop signal in its output (the agent-emitted path, distinct from
+  // loopdog's own empty-backlog short-circuit).
   const env = makeFakeEnv({
     cwd: "/repo",
+    files: { ...READY_ISSUE },
     spawnResults: [
       { stdout: "claude 1.0" }, // version probe
       { stdout: "" }, // git log
@@ -192,6 +274,7 @@ test("detects the NO READY ISSUES stop signal from agent output", async () => {
 test("no stop signal when the agent did work", async () => {
   const env = makeFakeEnv({
     cwd: "/repo",
+    files: { ...READY_ISSUE },
     spawnResults: [
       { stdout: "claude 1.0" },
       { stdout: "" },
@@ -263,6 +346,7 @@ test("mirrors the agent's output live through env.write as it streams", async ()
   const env = makeFakeEnv({
     cwd: "/repo",
     write: (chunk) => streamed.push(chunk),
+    files: { ...READY_ISSUE },
     spawnResults: [
       { stdout: "claude 1.0" }, // version probe
       { stdout: "abc earlier" }, // git log

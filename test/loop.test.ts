@@ -6,6 +6,17 @@ import { makeFakeEnv } from "./helpers/fake-env.ts";
 const RALPH = "RALPH";
 
 /**
+ * Ready issues so deterministic selection has work to spawn for. The fake agent
+ * doesn't actually flip statuses between iterations, so the loop ends via the
+ * agent emitting NO READY ISSUES in its output, not via the backlog draining.
+ */
+const READY_ISSUES = {
+  "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nslice A",
+  "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nslice B",
+  "/repo/.scratch/feat/issues/03-c.md": "> Status: ready-for-agent\nslice C",
+};
+
+/**
  * Build the spawn queue for `n` full iterations. Each iteration consumes:
  * a `claude --version` probe, a `git log`, and the agent run. The agent's
  * stdout on the final iteration carries the stop signal.
@@ -45,6 +56,7 @@ function resultEvent(usage: {
 test("repeats run until the NO READY ISSUES stop signal appears", async () => {
   const env = makeFakeEnv({
     cwd: "/repo",
+    files: { ...READY_ISSUES },
     spawnResults: queueForIterations([
       "implemented slice A",
       "implemented slice B",
@@ -67,6 +79,7 @@ test("accumulates per-iteration usage and emits an end-of-loop cost summary", as
   const env = makeFakeEnv({
     cwd: "/repo",
     writeOut: (s) => out.push(s),
+    files: { ...READY_ISSUES },
     spawnResults: [
       { stdout: "claude 1.0" },
       { stdout: "" },
@@ -101,6 +114,7 @@ test("accumulates per-iteration usage and emits an end-of-loop cost summary", as
 test("each iteration spawns its own fresh claude agent process", async () => {
   const env = makeFakeEnv({
     cwd: "/repo",
+    files: { ...READY_ISSUES },
     spawnResults: queueForIterations([
       "did slice A",
       "did slice B\nNO READY ISSUES",
@@ -121,6 +135,7 @@ test("stops at maxIterations even when the stop signal never appears", async () 
   // would loop forever. The backstop must cap it.
   const env = makeFakeEnv({
     cwd: "/repo",
+    files: { ...READY_ISSUES },
     spawnResults: queueForIterations(Array(10).fill("still working, no signal")),
   });
 
