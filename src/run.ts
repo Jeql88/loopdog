@@ -8,6 +8,14 @@ export interface RunOptions {
   ralphPrompt: string;
   /** Passed to `claude --permission-mode`; from config, default "auto". */
   permissionMode: string;
+  /**
+   * Model id for the spawned `claude --model <id>`. From config (default
+   * "sonnet"), overridable per run. A plain model id is shell-safe, so unlike
+   * the prompt it can ride on the command line. Defaults to "sonnet" when
+   * omitted so callers that don't care about the model still get the dumb-zone
+   * default.
+   */
+  model?: string;
 }
 
 /**
@@ -96,6 +104,10 @@ export async function runRun(env: Env, options: RunOptions): Promise<RunResult> 
       "--verbose",
       "--permission-mode",
       options.permissionMode,
+      // The AFK dumb-zone model. A plain model id is shell-safe, so it's fine on
+      // argv (the prompt itself still goes via stdin). Defaults to Sonnet.
+      "--model",
+      options.model ?? "sonnet",
     ],
     { stdin: prompt, onData: (chunk) => render(chunk) },
   );

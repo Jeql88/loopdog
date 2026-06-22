@@ -8,6 +8,13 @@ export interface LoopOptions {
   permissionMode: string;
   /** Backstop: stop after this many iterations even without a stop signal. */
   maxIterations: number;
+  /**
+   * Model id for every iteration's spawned `claude`. Resolved once, before the
+   * loop, and reused unchanged — the prompt cache is model-scoped, so a
+   * mid-loop switch would invalidate it and undo the cacheable-prefix saving.
+   * Defaults to "sonnet" when omitted.
+   */
+  model?: string;
 }
 
 export interface LoopResult {
@@ -41,6 +48,7 @@ export async function runLoop(
     const result = await runRun(env, {
       ralphPrompt: options.ralphPrompt,
       permissionMode: options.permissionMode,
+      model: options.model ?? "sonnet",
     });
     iterations++;
     totalCost = addCost(totalCost, result.cost);

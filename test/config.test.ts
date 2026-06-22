@@ -53,6 +53,23 @@ test("merges a partial file field-by-field with defaults", async () => {
   assert.equal(config.guardrails.nextStepHints, true); // default
 });
 
+test("loop.model defaults to sonnet and loads an override from the file", async () => {
+  // Absent loop.model → the cost-sensitive Sonnet default.
+  const defaulted = await loadConfig(makeFakeEnv({ cwd: "/repo" }));
+  assert.equal(defaulted.loop.model, "sonnet");
+
+  // A present loop.model is honoured (the durable per-repo default).
+  const overridden = await loadConfig(
+    makeFakeEnv({
+      cwd: "/repo",
+      files: { "/repo/loopdog.json": JSON.stringify({ loop: { model: "opus" } }) },
+    }),
+  );
+  assert.equal(overridden.loop.model, "opus");
+  // Other loop fields still default — field-by-field merge.
+  assert.equal(overridden.loop.maxIterations, 50);
+});
+
 test("falls back to defaults (with a warning) when loopdog.json is malformed", async () => {
   const out: string[] = [];
   const env = makeFakeEnv({

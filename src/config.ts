@@ -13,6 +13,13 @@ export interface LoopdogConfig {
     maxIterations: number;
     /** Passed to `claude --permission-mode`. */
     permissionMode: string;
+    /**
+     * Model id for the AFK dumb-zone spawn (`claude --model <id>`). Defaults to
+     * the cost-sensitive Sonnet; a per-run CLI flag can bump it to Opus for a
+     * hard feature. Stable for a whole loop run so the model-scoped prompt cache
+     * stays valid. Smart-zone interactive skills are unaffected.
+     */
+    model: string;
   };
   parallel: {
     /** Concurrent worktrees/agents per wave. */
@@ -25,7 +32,7 @@ export interface LoopdogConfig {
 /** Documented defaults — all guardrails ON, applied when config is absent. */
 export const DEFAULT_CONFIG: LoopdogConfig = {
   guardrails: { nextStepHints: true, contextHygiene: true },
-  loop: { maxIterations: 50, permissionMode: "auto" },
+  loop: { maxIterations: 50, permissionMode: "auto", model: "sonnet" },
   parallel: { maxAgents: 3, trace: "review" },
 };
 

@@ -99,6 +99,8 @@ test("gathers ready issues (excluding done/) + git log + ralph prompt, spawns on
     "--verbose",
     "--permission-mode",
     "auto",
+    "--model",
+    "sonnet",
   ]);
 
   // The prompt is delivered via STDIN, never as a CLI arg — so a large
@@ -181,6 +183,35 @@ test("with no ready issue, emits the stop signal without spawning the agent", as
     env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print")).length,
     0,
   );
+});
+
+test("passes the configured --model to the spawned claude", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: { ...READY_ISSUE },
+    spawnResults: [{ stdout: "claude 1.0" }, { stdout: "" }, { stdout: "did it" }],
+  });
+
+  await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto", model: "sonnet" });
+
+  const agent = env.spawnCalls.find((c) => c.cmd === "claude" && c.args.includes("--print"));
+  const i = agent!.args.indexOf("--model");
+  assert.ok(i >= 0, "--model present");
+  assert.equal(agent!.args[i + 1], "sonnet");
+});
+
+test("a per-run model override changes the spawned --model", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: { ...READY_ISSUE },
+    spawnResults: [{ stdout: "claude 1.0" }, { stdout: "" }, { stdout: "did it" }],
+  });
+
+  await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto", model: "opus" });
+
+  const agent = env.spawnCalls.find((c) => c.cmd === "claude" && c.args.includes("--print"));
+  const i = agent!.args.indexOf("--model");
+  assert.equal(agent!.args[i + 1], "opus");
 });
 
 test("orders the prompt static-prefix-first, commits last (cacheable prefix)", async () => {

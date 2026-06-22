@@ -1,6 +1,6 @@
 # 04 — Model-to-zone selection (default Sonnet, Opus override)
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

@@ -5,6 +5,7 @@
   },
   "loop": {
     "maxIterations": 50,
-    "permissionMode": "auto"
+    "permissionMode": "auto",
+    "model": "sonnet"
   }
 }

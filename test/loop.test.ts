@@ -111,6 +111,33 @@ test("accumulates per-iteration usage and emits an end-of-loop cost summary", as
   assert.match(text, /0\.07|\$0\.07/); // cost 0.05 + 0.02
 });
 
+test("uses the same model on every iteration of a run (cache stays valid)", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: { ...READY_ISSUES },
+    spawnResults: queueForIterations([
+      "did slice A",
+      "did slice B",
+      "done\nNO READY ISSUES",
+    ]),
+  });
+
+  await runLoop(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    maxIterations: 50,
+    model: "sonnet",
+  });
+
+  const models = env.spawnCalls
+    .filter((c) => c.cmd === "claude" && c.args.includes("--model"))
+    .map((c) => c.args[c.args.indexOf("--model") + 1]);
+  assert.equal(models.length, 3); // one per iteration
+  // Model-scoped prompt cache: a mid-loop switch would invalidate it, so every
+  // iteration must use the identical model id.
+  assert.ok(models.every((m) => m === "sonnet"), `all sonnet: ${models.join(",")}`);
+});
+
 test("each iteration spawns its own fresh claude agent process", async () => {
   const env = makeFakeEnv({
     cwd: "/repo",

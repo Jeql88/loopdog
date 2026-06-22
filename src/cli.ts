@@ -45,6 +45,9 @@ export async function run(
       const result = await runRun(env, {
         ralphPrompt,
         permissionMode: config.loop.permissionMode,
+        // `--model <id>` overrides the configured default for this run only;
+        // loopdog.json remains the durable record.
+        model: flagValue(argv, "--model") ?? config.loop.model,
       });
       // The agent's output is streamed live during the run; here we only add a
       // one-line summary so the run never exits silently. runRun prints its own
@@ -65,6 +68,7 @@ export async function run(
         ralphPrompt,
         permissionMode: config.loop.permissionMode,
         maxIterations: config.loop.maxIterations,
+        model: flagValue(argv, "--model") ?? config.loop.model,
       });
       env.writeOut(
         `loopdog loop: ran ${result.iterations} iteration(s), stopped by ${result.stoppedBy}.`,
@@ -75,6 +79,15 @@ export async function run(
       env.writeOut(`Unknown command: ${command}\n\n${USAGE}`);
       return 1;
   }
+}
+
+/**
+ * Read a `--flag value` pair from argv, or undefined if absent. Used for the
+ * per-run `--model` override; kept tiny because loopdog's CLI surface is small.
+ */
+function flagValue(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  return i >= 0 && i + 1 < argv.length ? argv[i + 1] : undefined;
 }
 
 /**
