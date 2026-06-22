@@ -1,0 +1,11 @@
+{
+  "guardrails": {
+    "nextStepHints": true,
+    "contextHygiene": true
+  },
+  "loop": {
+    "maxIterations": 50,
+    "permissionMode": "auto",
+    "model": "sonnet"
+  }
+}
