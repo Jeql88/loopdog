@@ -258,24 +258,37 @@ async function findIssueFiles(env: Env, root: string): Promise<string[]> {
   return found.sort();
 }
 
-/** Recent commit summaries for context, via `git log` through the port. */
+/**
+ * Recent commit summaries for context, via `git log` through the port. Trimmed
+ * to the last 5 (down from 20): this is the volatile tail of the prompt — it
+ * changes every iteration — so it is kept small to minimise what falls outside
+ * the cacheable prefix while still carrying a "what just happened" signal.
+ */
 async function recentCommits(env: Env): Promise<string> {
   try {
-    const { stdout } = await env.spawn("git", ["log", "--oneline", "-20"]);
+    const { stdout } = await env.spawn("git", ["log", "--oneline", "-5"]);
     return stdout.trim() || "no commits yet";
   } catch {
     return "no commits yet";
   }
 }
 
-/** Assemble the agent prompt: ralph instructions + commits + the selected issue. */
+/**
+ * Assemble the agent prompt as a **cacheable prefix + volatile tail**: the
+ * static part (ralph instructions, then the single selected issue) comes first
+ * and is byte-identical across iterations selecting the same issue; the recent
+ * commits — the only part that changes every iteration — come last. Ordering it
+ * this way lets consecutive iterations within the prompt-cache TTL pay
+ * cache-read rates on the shared prefix instead of re-creating the cache each
+ * time.
+ */
 function assemblePrompt(ralph: string, commits: string, issue: string): string {
   return [
     ralph,
-    "## Recent commits",
-    commits,
     "## The issue to implement",
     issue,
+    "## Recent commits",
+    commits,
   ].join("\n\n");
 }
 

@@ -1,6 +1,6 @@
 # 03 — Cacheable prompt order + trimmed commits
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 

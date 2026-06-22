@@ -183,6 +183,51 @@ test("with no ready issue, emits the stop signal without spawning the agent", as
   );
 });
 
+test("orders the prompt static-prefix-first, commits last (cacheable prefix)", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-ready.md": "> Status: ready-for-agent\nTHE SELECTED ISSUE.",
+    },
+    spawnResults: [
+      { stdout: "claude 1.0" }, // version probe
+      { stdout: "deadbee recent commit" }, // git log
+      { stdout: "did it" }, // agent run
+    ],
+  });
+
+  await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  const prompt =
+    env.spawnCalls.find((c) => c.cmd === "claude" && c.args.includes("--print"))?.stdin ?? "";
+  const ralphAt = prompt.indexOf("RALPH PROMPT BODY");
+  const issueAt = prompt.indexOf("THE SELECTED ISSUE");
+  const commitsAt = prompt.indexOf("deadbee recent commit");
+  // Static prefix (ralph, then the issue) comes before the volatile commit tail.
+  assert.ok(ralphAt >= 0 && issueAt > ralphAt, "ralph then issue");
+  assert.ok(commitsAt > issueAt, "commits come after the issue");
+  // And the commit block is the LAST section — nothing of substance after it.
+  assert.equal(commitsAt, Math.max(ralphAt, issueAt, commitsAt), "commits last");
+});
+
+test("trims the commit list to ~5 recent commits via git log", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-ready.md": "> Status: ready-for-agent\nslice",
+    },
+    spawnResults: [{ stdout: "claude 1.0" }, { stdout: "log" }, { stdout: "did it" }],
+  });
+
+  await runRun(env, { ralphPrompt: RALPH, permissionMode: "auto" });
+
+  const gitLog = env.spawnCalls.find((c) => c.cmd === "git" && c.args.includes("log"));
+  assert.ok(gitLog, "git log was spawned");
+  // Trimmed from 20 to 5 to keep the volatile tail small.
+  assert.ok(gitLog.args.includes("-5"), `git log limited to 5: ${gitLog.args.join(" ")}`);
+  assert.ok(!gitLog.args.includes("-20"), "no longer requests 20");
+});
+
 test("captures usage + cost from the stream-json result event and reports it", async () => {
   const out: string[] = [];
   const resultEvent =
