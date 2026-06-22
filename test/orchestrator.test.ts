@@ -482,6 +482,68 @@ test("hidden mode: out-of-tree worktrees, patch export, full teardown, apply hin
   assert.match(out.join("\n"), /git apply .*\.loopdog\/patches\//);
 });
 
+test("maintains status.json and per-agent logs under the scaffolding dir", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nB",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 2,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // A status.json under the gitignored scaffolding dir records the run.
+  const statusPath = "/repo/.loopdog/status.json";
+  assert.ok(env.files[statusPath], "status.json was written");
+  const status = JSON.parse(env.files[statusPath]);
+  assert.equal(status.wave, 1);
+  // It maps each agent's slice and a pass/fail-ish outcome.
+  const slices = status.agents.map((a: { slice: string }) => a.slice).sort();
+  assert.deepEqual(slices, ["01", "02"]);
+
+  // Each agent's output is captured to its own log file under the dir.
+  assert.ok(env.files["/repo/.loopdog/logs/slice-01.log"] !== undefined);
+  assert.ok(env.files["/repo/.loopdog/logs/slice-02.log"] !== undefined);
+});
+
+test("stops gracefully at the wave boundary when the stop sentinel is present", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      // Two independent slices, cap 1 → would be two waves. The stop sentinel
+      // is present from the start, so the run ends after the first wave.
+      "/repo/.scratch/feat/issues/01-a.md": "> Status: ready-for-agent\nA",
+      "/repo/.scratch/feat/issues/02-b.md": "> Status: ready-for-agent\nB",
+      "/repo/.loopdog/STOP": "",
+    },
+    spawnResults: [{ code: 0, stdout: "true" }],
+  });
+
+  const result = await runParallel(env, {
+    ralphPrompt: RALPH,
+    permissionMode: "auto",
+    model: "sonnet",
+    maxAgents: 1,
+    maxIterations: 50,
+    trace: "review",
+  });
+
+  // Exactly one wave ran (the in-flight wave completes; the next is not started).
+  assert.equal(result.waves, 1);
+  assert.equal(result.stoppedBy, "stopped");
+  const agents = env.spawnCalls.filter((c) => c.cmd === "claude" && c.args.includes("--print"));
+  assert.equal(agents.length, 1, "no mid-agent kill; the next wave never starts");
+});
+
 test("passes the model through to every agent in the wave", async () => {
   const env = makeFakeEnv({ cwd: "/repo", files: { ...READY } });
 

@@ -20,6 +20,52 @@ test("copies a template file that is absent in the target repo", async () => {
   assert.deepEqual(result.skipped, []);
 });
 
+test("adds .loopdog/ to .gitignore when there is no .gitignore yet", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: { "/templates/WORKFLOW.md": "wf" },
+  });
+
+  await runInit(env, "/templates");
+
+  const gitignore = await env.readFile("/repo/.gitignore");
+  assert.match(gitignore, /^\.loopdog\/$/m);
+});
+
+test("appends .loopdog/ to an existing .gitignore without clobbering it", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/templates/WORKFLOW.md": "wf",
+      "/repo/.gitignore": "node_modules\ndist\n",
+    },
+  });
+
+  await runInit(env, "/templates");
+
+  const gitignore = await env.readFile("/repo/.gitignore");
+  // Existing entries preserved, .loopdog/ appended.
+  assert.match(gitignore, /node_modules/);
+  assert.match(gitignore, /dist/);
+  assert.match(gitignore, /^\.loopdog\/$/m);
+});
+
+test("does not duplicate .loopdog/ if it is already in .gitignore", async () => {
+  const env = makeFakeEnv({
+    cwd: "/repo",
+    files: {
+      "/templates/WORKFLOW.md": "wf",
+      "/repo/.gitignore": "node_modules\n.loopdog/\n",
+    },
+  });
+
+  await runInit(env, "/templates");
+
+  const gitignore = await env.readFile("/repo/.gitignore");
+  const occurrences = gitignore.split("\n").filter((l) => l.trim() === ".loopdog/").length;
+  assert.equal(occurrences, 1, "no duplicate .loopdog/ entry");
+});
+
 test("skips a pre-existing file and never overwrites it", async () => {
   const env = makeFakeEnv({
     cwd: "/repo",

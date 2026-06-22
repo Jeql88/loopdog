@@ -35,7 +35,31 @@ export async function runInit(
     written.push(rel);
   }
 
+  await ensureGitignored(env, target);
+
   return { written, skipped };
+}
+
+/**
+ * Ensure `.loopdog/` is gitignored so loopdog's operational scaffolding (run
+ * logs, `status.json`, and review-mode worktree dirs) is never committed, in
+ * both trace modes. Write-if-absent and non-clobbering: a missing `.gitignore`
+ * is created with the single entry; an existing one is appended to only when
+ * the entry isn't already present.
+ */
+async function ensureGitignored(env: Env, target: string): Promise<void> {
+  const path = `${target}/.gitignore`;
+  const entry = ".loopdog/";
+  if (!(await env.exists(path))) {
+    await env.writeFile(path, `${entry}\n`);
+    return;
+  }
+  const current = await env.readFile(path);
+  const present = current.split("\n").some((line) => line.trim() === entry);
+  if (present) return;
+  // Append on its own line, preserving everything already there.
+  const sep = current.endsWith("\n") || current.length === 0 ? "" : "\n";
+  await env.writeFile(path, `${current}${sep}${entry}\n`);
 }
 
 /**

@@ -29,7 +29,7 @@ export interface ParallelResult {
   /** The number of agents in each wave, in order — for asserting the cap. */
   waveSizes: number[];
   /** Why the run ended. */
-  stoppedBy: "empty-frontier" | "max-iterations" | "not-a-git-repo";
+  stoppedBy: "empty-frontier" | "max-iterations" | "not-a-git-repo" | "stopped";
 }
 
 /**
@@ -88,7 +88,10 @@ export async function runParallel(
     }
     const wave = frontier.slice(0, Math.min(options.maxAgents, remaining));
 
-    await Promise.all(wave.map((issue) => dispatchAgent(env, issue, options)));
+    const agentStatuses = await Promise.all(
+      wave.map((issue) => dispatchAgent(env, issue, options)),
+    );
+    await writeStatus(env, waveSizes.length + 1, agentStatuses);
     // Integrate the wave. Review mode merges branches into loopdog-integration
     // (parking unresolvable conflicts as needs-info); hidden mode exports each
     // slice as a patch and tears its branch down, leaving zero git footprint and
@@ -116,7 +119,32 @@ export async function runParallel(
     if (agentsDispatched >= options.maxIterations) {
       return { agentsDispatched, waves: waveSizes.length, waveSizes, stoppedBy: "max-iterations" };
     }
+    // Graceful stop is checked at the wave boundary: the in-flight wave always
+    // finishes (no mid-agent kill), but a stop sentinel ends the run before the
+    // next wave is dispatched.
+    if (await stopRequested(env)) {
+      return { agentsDispatched, waves: waveSizes.length, waveSizes, stoppedBy: "stopped" };
+    }
   }
+}
+
+/** True if the user has dropped the stop sentinel under the scaffolding dir. */
+async function stopRequested(env: Env): Promise<boolean> {
+  return env.exists(`${env.cwd()}/.loopdog/STOP`);
+}
+
+/**
+ * Persist a `status.json` under the gitignored scaffolding dir so a running
+ * parallel loop is observable: the current wave number and, per agent, which
+ * slice it held and whether it passed. Overwritten each wave — it reflects the
+ * latest wave, not a full history.
+ */
+async function writeStatus(env: Env, wave: number, agents: AgentStatus[]): Promise<void> {
+  const status = { wave, agents };
+  await env.writeFile(
+    `${env.cwd()}/.loopdog/status.json`,
+    `${JSON.stringify(status, null, 2)}\n`,
+  );
 }
 
 /**
@@ -225,11 +253,18 @@ async function isGitRepo(env: Env): Promise<boolean> {
  * body and this single slice; it deliberately carries no mention of the other
  * agents in the wave.
  */
+/** One agent's outcome in a wave, recorded into status.json. */
+interface AgentStatus {
+  slice: string;
+  branch: string;
+  outcome: "pass" | "fail";
+}
+
 async function dispatchAgent(
   env: Env,
   issue: IssueFile,
   options: ParallelOptions,
-): Promise<void> {
+): Promise<AgentStatus> {
   const slice = sliceId(issue.path);
   const branch = `loopdog/slice-${slice}`;
   const worktree = `${worktreeBase(env, options.trace)}/slice-${slice}`;
@@ -241,7 +276,11 @@ async function dispatchAgent(
   await env.spawn("git", ["worktree", "add", "-b", branch, worktree]);
   try {
     const prompt = assemblePrompt(options.ralphPrompt, "no commits yet", issue.body);
-    await env.spawn(
+    // Capture the agent's stream to its own log file under the gitignored
+    // scaffolding dir, so a running parallel loop is observable. ("Hidden" is
+    // about git footprint, not process visibility — logs are always written.)
+    let captured = "";
+    const result = await env.spawn(
       "claude",
       [
         "--print",
@@ -253,8 +292,19 @@ async function dispatchAgent(
         "--model",
         options.model,
       ],
-      { stdin: prompt, cwd: worktree },
+      {
+        stdin: prompt,
+        cwd: worktree,
+        onData: (chunk) => {
+          captured += chunk;
+        },
+      },
     );
+    await env.writeFile(
+      `${env.cwd()}/.loopdog/logs/slice-${slice}.log`,
+      captured || result.stdout,
+    );
+    return { slice, branch, outcome: result.code === 0 ? "pass" : "fail" };
   } finally {
     // Always tear the worktree down, even if the agent failed — a stale
     // worktree would block the next run from recreating the same branch. In

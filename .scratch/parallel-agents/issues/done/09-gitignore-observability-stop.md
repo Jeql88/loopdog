@@ -1,6 +1,6 @@
 # 09 — `.loopdog/` gitignored by `init`; `status.json` + per-agent logs; graceful stop
 
-> Status: ready-for-agent
+> Status: done
 
 ## Parent
 
